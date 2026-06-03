@@ -1,0 +1,12 @@
+{
+  "name": "memory-digest",
+  "owner": { "name": "JACK" },
+  "plugins": [
+    {
+      "name": "session-memory",
+      "source": "./",
+      "description": "每次 session 結束自動智慧萃取成摘要，存進按專案分艙的本機向量庫；下個 session 可語意檢索過去脈絡。",
+      "version": "0.1.0"
+    }
+  ]
+}

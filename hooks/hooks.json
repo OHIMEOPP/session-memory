@@ -1,0 +1,15 @@
+{
+  "description": "Session memory：SessionEnd 自動萃取本 session → 按專案分艙的向量庫",
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py \"${CLAUDE_PLUGIN_ROOT}/scripts/extract_session.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

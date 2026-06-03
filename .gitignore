@@ -1,0 +1,5 @@
+# 向量庫是本機狀態，不入庫（實際存在 ~/.claude/session-memory/，這裡保險擋一下）
+session_memory_db/
+**/session_memory_db/
+__pycache__/
+*.pyc

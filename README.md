@@ -146,9 +146,13 @@ user space 放一個一次性 thin wrapper，動態定位 plugin cache 最高版
    ```json
    "statusLine": {
      "type": "command",
-     "command": "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\User\\.claude\\scripts\\sm-statusline-wrapper.ps1"
+     "command": "powershell -NoProfile -ExecutionPolicy Bypass -File C:/Users/User/.claude/scripts/sm-statusline-wrapper.ps1"
    }
    ```
+
+   > ⚠ Windows 路徑**務必用正斜線 `/`**。Claude Code 在 Windows 經 sh-like shell 執行
+   > statusLine 指令，反斜線 `\` 會被吃掉導致路徑壞掉、command 靜默失敗（狀態列空白）。
+   > `powershell -File` 本身吃正斜線沒問題。（plugin 的 `hooks.json` 一直用正斜線就是這原因。）
 
 3. 重啟 Claude Code session 生效。wrapper 寫一次就不用再碰；之後改顯示樣式只改 plugin 端
    `scripts/usage_statusline.ps1` 並 `/plugin update`。

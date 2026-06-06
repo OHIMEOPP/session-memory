@@ -156,6 +156,13 @@ def spawn_detached(extra_args):
 
 
 if __name__ == "__main__":
+    # 防「萃取也是在跟 Claude 講話」的綠寵誤觸發：extract_session.py 的
+    # summarize_claude() 跑巢狀 `claude -p` 時塞了 LIFEWIKI_NO_HOOK=1，那個
+    # headless claude 一樣會觸發 UserPromptSubmit/Stop hook → 會把綠寵叫出來
+    # 疊在藍色萃取寵上。這裡跟 extract_session.py 同款 guard 直接跳過。
+    # （藍色萃取寵不受影響：它由 worker 直接 spawn，env 沒這個 flag。）
+    if os.environ.get("LIFEWIKI_NO_HOOK"):
+        sys.exit(0)
     args = sys.argv[1:]
     if "--busy" in args:
         # UserPromptSubmit：建標記 → detach 綠色作業中視窗 → 立刻 return

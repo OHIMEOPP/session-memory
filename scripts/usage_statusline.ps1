@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env pwsh
-# session-memory plugin — usage statusLine 顯示邏輯
+# session-memory plugin — usage statusLine 顯示邏輯（櫻花粉配色）
 #
 # 在狀態列常駐顯示：
 #   ctx     = context 窗用量%（+ token 數）— 一定有，從 session 開頭就顯示
@@ -9,8 +9,8 @@
 # 注意：session/week 來自 rate_limits，只在 statusLine stdin JSON 出現，且限
 # Claude.ai Pro/Max、本 session「首次 API 回應之後」才有；在那之前只顯示 ctx。
 #
-# 由 user space 的 ~/.claude/scripts/sm-statusline-wrapper.ps1 以 -Raw 帶 stdin 呼叫
-# （statusLine 不展開 ${CLAUDE_PLUGIN_ROOT}，故需 wrapper 動態定位本檔）。
+# 配色用 ANSI truecolor（櫻花粉）：填滿 bar 深櫻、空 bar 淡櫻、文字中櫻花。
+# 由 user space 的 ~/.claude/scripts/sm-statusline-wrapper.ps1 以 -Raw 帶 stdin 呼叫。
 # 也可獨立測試： Get-Content sample.json -Raw | powershell -File usage_statusline.ps1
 param([string]$Raw)
 
@@ -22,11 +22,18 @@ $d = $null
 try { $d = $Raw | ConvertFrom-Json } catch { }
 if ($null -eq $d) { return }
 
+# --- 櫻花粉配色（ANSI truecolor）---
+$E = [char]27
+$MAIN = "$E[38;2;244;154;194m"   # 文字：櫻花粉 #F49AC2
+$DEEP = "$E[38;2;226;109;138m"   # bar 填滿：深櫻花 #E26D8A
+$PALE = "$E[38;2;247;214;221m"   # bar 空格：淡櫻花 #F7D6DD
+$RST  = "$E[0m"
+
 function Bar([double]$pct, [int]$n = 6) {
     if ($pct -lt 0) { $pct = 0 }
     if ($pct -gt 100) { $pct = 100 }
     $fill = [int][math]::Round($pct / 100.0 * $n)
-    ('▮' * $fill) + ('▯' * ($n - $fill))
+    "$DEEP$('▮' * $fill)$PALE$('▯' * ($n - $fill))$MAIN"
 }
 
 function ToK([double]$n) {
@@ -66,4 +73,4 @@ if ($null -ne $wk) {
     $parts += "week $(Bar $wk) ${wki}%"
 }
 
-[Console]::Out.Write(($parts -join '  │  '))
+[Console]::Out.Write($MAIN + ($parts -join '  │  ') + $RST)

@@ -115,4 +115,4 @@ marketplace 指向本機資料夾，所以先把資料夾本身 `git pull`，再
 
 - `SessionEnd` 不保證 100% 觸發：正常 `/exit`、`/clear` 會；當機 / 強制 kill / 秒關機可能漏該次。
 - 跨裝置不同步：各機各專案獨立庫。
-- 平台：`hooks.json` 與 commands 預設用 Windows 的 `py`；macOS / Linux 需改 `python3`。
+- 平台：`hooks.json` 與 commands 預設用 Windows 的 `py -3`（鎖真 Python、繞過 shebang PATH 搜尋，避免命中 Microsoft Store 假 `python3` stub 而 exit 9009 靜默失敗）；macOS / Linux 需改 `python3`。

@@ -4,18 +4,19 @@ description: 安裝 / 檢查 session 記憶系統的依賴與後端
 
 協助使用者把 session 記憶系統的依賴裝好。依序做：
 
-> ⚠ **Windows 多版本 Python 陷阱**：hook 與本 plugin 的腳本都以「檔案執行」(`py 檔.py`)
-> 跑，走的是 shebang 解析的 Python（通常 = 最新的 `py -3`）；而 `py -c` / 純 `pip`
-> 走的是「預設」版，可能是另一個沒裝套件的 Python。**所以檢查與安裝都要鎖同一個直譯器**：
-> 檢查一律用「跑腳本檔」、安裝用 `py -3 -m pip`。
+> ⚠ **Windows 多版本 Python 陷阱**：hook 與本 plugin 的指令一律用 **`py -3`** 跑
+> （而非 `py 檔.py`）。原因：`py 檔.py` 會解析腳本 shebang `#!/usr/bin/env python3`，
+> 去 PATH 搜 `python3`，常命中 **Microsoft Store 的 0-byte 假 stub**（exit 9009、零輸出，
+> 看起來像沒裝套件其實根本沒跑）。`py -3` 直接鎖「已註冊的真 Python 3」，跳過 PATH 搜尋、
+> 對假 stub 免疫。**檢查與安裝都鎖同一個直譯器**：檢查用 `py -3 檔.py`、安裝用 `py -3 -m pip`。
 
-1. **測 chromadb 是否已裝**（用檔案執行，確保是 hook 會用的那個 Python）：
+1. **測 chromadb 是否已裝**（鎖真 Python，確保是 hook 會用的那個）：
    ```
-   py "${CLAUDE_PLUGIN_ROOT}/scripts/query_sessions.py" --list
+   py -3 "${CLAUDE_PLUGIN_ROOT}/scripts/query_sessions.py" --list
    ```
    - 印出「共 N 個 session」→ 已裝好，直接到第 3 步。
    - 印出「⚠ chromadb 未安裝 …」→ 進第 2 步。
-   - （macOS / Linux 把 `py` 換成 `python3`。）
+   - （macOS / Linux 把 `py -3` 換成 `python3`。）
 
 2. **沒裝就裝**（唯一硬依賴，預設後端零 ollama、零 API key）。
    裝進「檔案執行會用到的那個 Python」：
@@ -23,8 +24,8 @@ description: 安裝 / 檢查 session 記憶系統的依賴與後端
    py -3 -m pip install chromadb
    ```
    （macOS / Linux：`python3 -m pip install chromadb`。）
-   裝完**重跑第 1 步驗證**——若仍報未安裝，表示 shebang 指到的是別的 Python，
-   改用 `where py` / `py -0p` 找出實際版本再對應安裝。
+   裝完**重跑第 1 步驗證**——`py -3 -m pip` 與 `py -3 檔.py` 鎖的是同一個直譯器，
+   正常不會錯位；若仍報未安裝，用 `py -0p` 確認 `py -3` 實際指到哪個 Python 再對應安裝。
    首次查詢會下載一個小的 MiniLM onnx embedding 模型（需一次性網路）；
    若報 onnxruntime 缺失，補 `py -3 -m pip install onnxruntime`。
 
@@ -37,7 +38,7 @@ description: 安裝 / 檢查 session 記憶系統的依賴與後端
 
 4. **驗證**：
    ```
-   py "${CLAUDE_PLUGIN_ROOT}/scripts/query_sessions.py" --status
+   py -3 "${CLAUDE_PLUGIN_ROOT}/scripts/query_sessions.py" --status
    ```
    能正常印出（✅ 或 ⏳）就代表裝好了。
 

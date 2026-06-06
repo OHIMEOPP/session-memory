@@ -16,11 +16,11 @@
 
 | 檔案 | 角色 |
 |------|------|
-| `hooks/hooks.json` | `SessionEnd` → 跑 `extract_session.py`（detached 背景，不卡退出）|
+| `hooks/hooks.json` | `SessionEnd` → 跑 `extract_session.py`（detached 背景，不卡退出）；`Stop` → 每次回完話閃綠色完成桌寵 |
 | `scripts/session_mem_common.py` | 分艙 DB 路徑 + embedding 後端（store/query 共用）|
 | `scripts/extract_session.py` | 萃取 worker：讀 transcript → `claude -p` 摘要 → embed 入庫 |
 | `scripts/query_sessions.py` | 查詢：`"問題"` / `--list` / `--status` / `--min-score` / `-k`|
-| `scripts/session_pet.py` | 萃取中右下角顏文字桌寵（cosmetic，`LIFEWIKI_PET=0` 關）|
+| `scripts/session_pet.py` | 右下角顏文字桌寵（cosmetic）。萃取中=藍（`LIFEWIKI_PET=0` 關）；`--done`=綠色「處理完成」（由 `Stop` hook 叫起，不要就移除該 hook）|
 | `commands/session-recall.md` | `/session-recall <問題>` — 檢索當前專案的記憶 |
 | `commands/session-memory-setup.md` | `/session-memory-setup` — 裝依賴 / 選後端 |
 

@@ -1,5 +1,5 @@
 {
-  "description": "Session memory：SessionEnd 自動萃取本 session → 按專案分艙的向量庫",
+  "description": "Session memory：SessionEnd 自動萃取本 session → 按專案分艙的向量庫；Stop 每次回完話閃綠色完成桌寵",
   "hooks": {
     "SessionEnd": [
       {
@@ -7,6 +7,16 @@
           {
             "type": "command",
             "command": "py -3 \"${CLAUDE_PLUGIN_ROOT}/scripts/extract_session.py\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py -3 \"${CLAUDE_PLUGIN_ROOT}/scripts/session_pet.py\" --done"
           }
         ]
       }

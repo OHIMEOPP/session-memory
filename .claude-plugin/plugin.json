@@ -1,7 +1,7 @@
 {
   "name": "session-memory",
-  "version": "0.1.0",
-  "description": "每次 Claude Code session 結束自動智慧萃取成結構化摘要，存進『按專案分艙』的本機向量庫；下個 session 可語意檢索過去脈絡。全域安裝、對所有專案觸發，但各專案各自一個庫互不汙染。",
+  "version": "0.2.0",
+  "description": "每次 Claude Code session 結束自動智慧萃取成結構化摘要，存進『按專案分艙』的本機向量庫；下個 session 可語意檢索過去脈絡。全域安裝、對所有專案觸發，但各專案各自一個庫互不汙染。附桌寵指示器：萃取中（藍）/ 處理完成（綠）。",
   "author": { "name": "JACK" },
   "keywords": ["memory", "session", "rag", "chroma", "hooks"]
 }

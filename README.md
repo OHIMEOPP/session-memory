@@ -16,12 +16,14 @@
 
 | 檔案 | 角色 |
 |------|------|
-| `hooks/hooks.json` | `SessionEnd` → 跑 `extract_session.py`（detached 背景，不卡退出）；`UserPromptSubmit` → 起綠色「作業中」桌寵；`Stop` → 同一隻翻成「處理完成」並關 |
+| `hooks/hooks.json` | `SessionStart` → 跑 `deploy_statusline.py`（自動部署 usage statusLine）；`SessionEnd` → 跑 `extract_session.py`（detached 背景，不卡退出）；`UserPromptSubmit` → 起綠色「作業中」桌寵；`Stop` → 同一隻翻成「處理完成」並關 |
 | `scripts/session_mem_common.py` | 分艙 DB 路徑 + embedding 後端（store/query 共用）|
 | `scripts/extract_session.py` | 萃取 worker：讀 transcript → `claude -p` 摘要 → embed 入庫 |
 | `scripts/query_sessions.py` | 查詢：`"問題"` / `--list` / `--status` / `--min-score` / `-k`|
 | `scripts/session_pet.py` | 右下角顏文字桌寵（cosmetic）。綠色寵=對話一回合「作業中→處理完成」（`UserPromptSubmit` 建 `.busy` + 起視窗，`Stop` 刪 `.busy` 令其翻完成；同一隻）；藍色寵=session 萃取中→完成（`LIFEWIKI_PET=0` 關）|
-| `scripts/usage_statusline.ps1` | usage 狀態列：常駐顯示 `/usage` 的 session(5h 滾動窗)+week(7d) 用量%（+ context 保底）。**不由 plugin manifest 註冊**（Claude Code 不支援 plugin 提供主 statusLine），須由 user space wrapper 接線——見「usage statusLine」章節 |
+| `scripts/usage_statusline.ps1` | usage 狀態列**顯示邏輯**：常駐顯示 `/usage` 的 session(5h 滾動窗)+week(7d) 用量%（+ context 保底）。改樣式只改這支，`/plugin update` 即散布——見「usage statusLine」章節 |
+| `scripts/sm-statusline-wrapper.ps1` | statusLine **橋接 wrapper 模板**：由 `deploy_statusline.py` 自動複製到 `~/.claude/scripts/`。動態定位 plugin cache 最高版、轉交 stdin（因 statusLine 不展開 `${CLAUDE_PLUGIN_ROOT}`、cache 路徑含版本號）|
+| `scripts/deploy_statusline.py` | `SessionStart` hook：冪等部署 wrapper 到 user space + 首次補 `settings.json` 的 statusLine（已有則不動）。換機裝 plugin 即全自動 |
 | `commands/session-recall.md` | `/session-recall <問題>` — 檢索當前專案的記憶 |
 | `commands/session-memory-setup.md` | `/session-memory-setup` — 裝依賴 / 選後端 |
 
@@ -109,55 +111,42 @@ marketplace 指向本機資料夾，所以先把資料夾本身 `git pull`，再
 > 且限 **Claude.ai Pro/Max、本 session 首次 API 回應之後**。剛開 session / 非 Pro·Max
 > 時退回顯示 context 窗用量。**hook 完全拿不到這些數字**，所以做不進桌寵，只能走 statusLine。
 
-### 為什麼要一個 user space wrapper
+### 怎麼運作（換機全自動，免手動）
 
-Claude Code **不支援 plugin 在 manifest 註冊主 `statusLine`**（只支援 `agent` /
-`subagentStatusLine`），而且**不會在 user settings.json 的 statusLine 指令裡展開
-`${CLAUDE_PLUGIN_ROOT}`**——plugin cache 路徑又含版本號，每次升版就變。
+裝好 plugin 後，`SessionStart` hook（`deploy_statusline.py`）會自動：
 
-所以採混合：顯示邏輯（`scripts/usage_statusline.ps1`）住 plugin、隨 `/plugin update` 走；
-user space 放一個一次性 thin wrapper，動態定位 plugin cache 最高版並轉交 stdin。
+1. 把 `scripts/sm-statusline-wrapper.ps1` **冪等複製**到 `~/.claude/scripts/`（隨 `/plugin update` 一起更新）
+2. 若 `settings.json` 還沒有任何 `statusLine`，**自動補上**指向該 wrapper 那行（已有則完全不動，尊重你既有設定）
 
-### 接線（一次性，Windows）
+所以**換機只要裝 plugin**（`/plugin marketplace add` → `install` → `update`），重開一個新 session
+就會生效——不用手動放 wrapper、也不用手動改 settings.json。
 
-1. 放 wrapper `~/.claude/scripts/sm-statusline-wrapper.ps1`：
+> statusLine 在 **session 啟動時載入一次**，所以 hook 這次寫的設定通常**下一個 session** 才看得到。
 
-   ```powershell
-   $ErrorActionPreference = 'SilentlyContinue'
-   $raw = [Console]::In.ReadToEnd()
-   $base = Join-Path $env:USERPROFILE '.claude\plugins\cache\memory-digest\session-memory'
-   $target = $null
-   if (Test-Path $base) {
-       $dir = Get-ChildItem $base -Directory |
-           Where-Object { $_.Name -match '^\d' } |
-           Sort-Object { try { [version]($_.Name) } catch { [version]'0.0.0' } } -Descending |
-           Select-Object -First 1
-       if ($dir) {
-           $cand = Join-Path $dir.FullName 'scripts\usage_statusline.ps1'
-           if (Test-Path $cand) { $target = $cand }
-       }
-   }
-   if ($target) { & $target -Raw $raw }
-   else { try { $d = $raw | ConvertFrom-Json; [Console]::Out.Write($d.model.display_name) } catch { } }
-   ```
+### 為什麼要這套機制（架構）
 
-2. `~/.claude/settings.json` 加：
+- Claude Code **不支援 plugin 在 manifest 註冊主 `statusLine`**（只開放 `agent` / `subagentStatusLine`），
+  也**不會在 user settings 的 statusLine 指令裡展開 `${CLAUDE_PLUGIN_ROOT}`**，plugin cache 路徑又含版本號。
+  → 故 wrapper 必須住固定的 user space 路徑，由 hook 部署；顯示邏輯則留在 plugin、隨版本走。
+- `deploy_statusline.py` 改 settings.json 採**保守策略**：`utf-8-sig` 讀（容忍 BOM）、只在缺 `statusLine` 時加、
+  保留其餘設定、atomic 寫回、失敗不擋 session 啟動。寫入的路徑用**正斜線**。
 
-   ```json
-   "statusLine": {
-     "type": "command",
-     "command": "powershell -NoProfile -ExecutionPolicy Bypass -File C:/Users/User/.claude/scripts/sm-statusline-wrapper.ps1"
-   }
-   ```
+> ⚠ Windows 路徑**務必正斜線 `/`**：Claude Code 在 Windows 經 sh-like shell 執行 statusLine 指令，
+> 反斜線 `\` 會被當 escape 吃掉 → 路徑壞 → command 靜默失敗（狀態列空白無報錯）。
 
-   > ⚠ Windows 路徑**務必用正斜線 `/`**。Claude Code 在 Windows 經 sh-like shell 執行
-   > statusLine 指令，反斜線 `\` 會被吃掉導致路徑壞掉、command 靜默失敗（狀態列空白）。
-   > `powershell -File` 本身吃正斜線沒問題。（plugin 的 `hooks.json` 一直用正斜線就是這原因。）
+### 手動接線（不想用自動、或想自訂時）
 
-3. 重啟 Claude Code session 生效。wrapper 寫一次就不用再碰；之後改顯示樣式只改 plugin 端
-   `scripts/usage_statusline.ps1` 並 `/plugin update`。
+```json
+"statusLine": {
+  "type": "command",
+  "command": "powershell -NoProfile -ExecutionPolicy Bypass -File C:/Users/User/.claude/scripts/sm-statusline-wrapper.ps1"
+}
+```
 
-> macOS / Linux：把 wrapper 改寫成 shell 版（`~/.claude/plugins/cache/memory-digest/session-memory/*/scripts/` 取最高版 → 跑對應腳本），並提供 `usage_statusline.sh` 版顯示邏輯。
+改顯示樣式（進度條格數、顏色、加 reset 倒數）只改 plugin 端 `scripts/usage_statusline.ps1` 並 `/plugin update`。
+
+> macOS / Linux：目前自動部署與 wrapper 為 Windows PowerShell 版；需提供 `.sh` 版 wrapper +
+> `usage_statusline.sh` 顯示邏輯，並在 `deploy_statusline.py` 依平台選對應檔。
 
 ## 後端 / 可調 env
 

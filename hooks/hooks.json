@@ -1,6 +1,16 @@
 {
-  "description": "Session memory：SessionEnd 自動萃取本 session → 按專案分艙的向量庫；UserPromptSubmit→Stop 一隻綠色寵走「作業中→處理完成」；SessionEnd 藍色寵「萃取中→完成」",
+  "description": "Session memory：SessionEnd 自動萃取本 session → 按專案分艙的向量庫；UserPromptSubmit→Stop 一隻綠色寵走「作業中→處理完成」；SessionEnd 藍色寵「萃取中→完成」；SessionStart 自動部署 usage statusLine wrapper + 補 settings.json",
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py -3 \"${CLAUDE_PLUGIN_ROOT}/scripts/deploy_statusline.py\""
+          }
+        ]
+      }
+    ],
     "SessionEnd": [
       {
         "hooks": [

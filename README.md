@@ -21,6 +21,7 @@
 | `scripts/extract_session.py` | 萃取 worker：讀 transcript → `claude -p` 摘要 → embed 入庫 |
 | `scripts/query_sessions.py` | 查詢：`"問題"` / `--list` / `--status` / `--min-score` / `-k`|
 | `scripts/session_pet.py` | 右下角顏文字桌寵（cosmetic）。綠色寵=對話一回合「作業中→處理完成」（`UserPromptSubmit` 建 `.busy` + 起視窗，`Stop` 刪 `.busy` 令其翻完成；同一隻）；藍色寵=session 萃取中→完成（`LIFEWIKI_PET=0` 關）|
+| `scripts/usage_statusline.ps1` | usage 狀態列：常駐顯示 `/usage` 的 session(5h 滾動窗)+week(7d) 用量%（+ context 保底）。**不由 plugin manifest 註冊**（Claude Code 不支援 plugin 提供主 statusLine），須由 user space wrapper 接線——見「usage statusLine」章節 |
 | `commands/session-recall.md` | `/session-recall <問題>` — 檢索當前專案的記憶 |
 | `commands/session-memory-setup.md` | `/session-memory-setup` — 裝依賴 / 選後端 |
 
@@ -98,6 +99,61 @@ marketplace 指向本機資料夾，所以先把資料夾本身 `git pull`，再
 > directory 來源讀的是本機那份檔案，`git pull` 後 `/plugin update` 就會把新內容同步進 cache。
 > 若 `marketplace.json` 的 `version` 沒升，Claude Code 可能視為「已是最新」而不更新——
 > 改源碼要散佈時記得把 `.claude-plugin/plugin.json` 與 `marketplace.json` 的 `version` 一起升號。
+
+## usage statusLine（狀態列常駐顯示用量%）
+
+在 Claude Code 底部狀態列常駐顯示 `/usage` 的兩個關鍵數字：
+`session`（5 小時滾動窗用量%）與 `week`（7 天窗用量%），外加 context 窗用量保底。
+
+> ⚠ 限制：`rate_limits` 那兩個百分比**只**出現在 statusLine 餵入的 stdin JSON，
+> 且限 **Claude.ai Pro/Max、本 session 首次 API 回應之後**。剛開 session / 非 Pro·Max
+> 時退回顯示 context 窗用量。**hook 完全拿不到這些數字**，所以做不進桌寵，只能走 statusLine。
+
+### 為什麼要一個 user space wrapper
+
+Claude Code **不支援 plugin 在 manifest 註冊主 `statusLine`**（只支援 `agent` /
+`subagentStatusLine`），而且**不會在 user settings.json 的 statusLine 指令裡展開
+`${CLAUDE_PLUGIN_ROOT}`**——plugin cache 路徑又含版本號，每次升版就變。
+
+所以採混合：顯示邏輯（`scripts/usage_statusline.ps1`）住 plugin、隨 `/plugin update` 走；
+user space 放一個一次性 thin wrapper，動態定位 plugin cache 最高版並轉交 stdin。
+
+### 接線（一次性，Windows）
+
+1. 放 wrapper `~/.claude/scripts/sm-statusline-wrapper.ps1`：
+
+   ```powershell
+   $ErrorActionPreference = 'SilentlyContinue'
+   $raw = [Console]::In.ReadToEnd()
+   $base = Join-Path $env:USERPROFILE '.claude\plugins\cache\memory-digest\session-memory'
+   $target = $null
+   if (Test-Path $base) {
+       $dir = Get-ChildItem $base -Directory |
+           Where-Object { $_.Name -match '^\d' } |
+           Sort-Object { try { [version]($_.Name) } catch { [version]'0.0.0' } } -Descending |
+           Select-Object -First 1
+       if ($dir) {
+           $cand = Join-Path $dir.FullName 'scripts\usage_statusline.ps1'
+           if (Test-Path $cand) { $target = $cand }
+       }
+   }
+   if ($target) { & $target -Raw $raw }
+   else { try { $d = $raw | ConvertFrom-Json; [Console]::Out.Write($d.model.display_name) } catch { } }
+   ```
+
+2. `~/.claude/settings.json` 加：
+
+   ```json
+   "statusLine": {
+     "type": "command",
+     "command": "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\User\\.claude\\scripts\\sm-statusline-wrapper.ps1"
+   }
+   ```
+
+3. 重啟 Claude Code session 生效。wrapper 寫一次就不用再碰；之後改顯示樣式只改 plugin 端
+   `scripts/usage_statusline.ps1` 並 `/plugin update`。
+
+> macOS / Linux：把 wrapper 改寫成 shell 版（`~/.claude/plugins/cache/memory-digest/session-memory/*/scripts/` 取最高版 → 跑對應腳本），並提供 `usage_statusline.sh` 版顯示邏輯。
 
 ## 後端 / 可調 env
 

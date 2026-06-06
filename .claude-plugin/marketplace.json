@@ -5,8 +5,8 @@
     {
       "name": "session-memory",
       "source": "./",
-      "description": "每次 session 結束自動智慧萃取成摘要，存進按專案分艙的本機向量庫；下個 session 可語意檢索過去脈絡。附桌寵：對話作業中→完成（綠）/ session 萃取中→完成（藍）。",
-      "version": "0.3.1"
+      "description": "每次 session 結束自動智慧萃取成摘要，存進按專案分艙的本機向量庫；下個 session 可語意檢索過去脈絡。附桌寵：對話作業中→完成（綠）/ session 萃取中→完成（藍）。另附 usage statusLine：狀態列常駐顯示 /usage 的 session(5h)+week(7d) 用量%。",
+      "version": "0.4.0"
     }
   ]
 }

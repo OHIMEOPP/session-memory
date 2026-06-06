@@ -1,13 +1,13 @@
 ﻿#!/usr/bin/env pwsh
 # session-memory plugin — usage statusLine 顯示邏輯
 #
-# 在狀態列常駐顯示 /usage 的兩個關鍵數字：
+# 在狀態列常駐顯示：
+#   ctx     = context 窗用量%（+ token 數）— 一定有，從 session 開頭就顯示
 #   session = 5 小時滾動窗用量%（rate_limits.five_hour）
 #   week    = 7 天窗用量%（rate_limits.seven_day）
-# 外加 context 窗用量當保底。
 #
-# 注意：rate_limits 只在 statusLine stdin JSON 出現，且限 Claude.ai Pro/Max、
-# 本 session「首次 API 回應之後」才有；其餘情況退回顯示 context 窗用量。
+# 注意：session/week 來自 rate_limits，只在 statusLine stdin JSON 出現，且限
+# Claude.ai Pro/Max、本 session「首次 API 回應之後」才有；在那之前只顯示 ctx。
 #
 # 由 user space 的 ~/.claude/scripts/sm-statusline-wrapper.ps1 以 -Raw 帶 stdin 呼叫
 # （statusLine 不展開 ${CLAUDE_PLUGIN_ROOT}，故需 wrapper 動態定位本檔）。
@@ -29,14 +29,34 @@ function Bar([double]$pct, [int]$n = 6) {
     ('▮' * $fill) + ('▯' * ($n - $fill))
 }
 
+function ToK([double]$n) {
+    if ($n -ge 1000000) { return "$([math]::Round($n / 1000000.0, 1))M" }
+    if ($n -ge 1000) { return "$([math]::Round($n / 1000.0))k" }
+    return "$([int][math]::Round($n))"
+}
+
 $parts = @()
 
 $model = $d.model.display_name
 if ($model) { $parts += $model }
 
+# context 窗用量：一定有，常駐顯示（含 token 數）
+$ctx = $d.context_window.used_percentage
+if ($null -ne $ctx) {
+    $ci = [int][math]::Round([double]$ctx)
+    $ctxStr = "ctx $(Bar $ctx) ${ci}%"
+    $size = [double]$d.context_window.context_window_size
+    if ($size -gt 0) {
+        $used = [double]$d.context_window.total_input_tokens + [double]$d.context_window.total_output_tokens
+        if ($used -le 0) { $used = $size * [double]$ctx / 100.0 }
+        $ctxStr += " ($(ToK $used)/$(ToK $size))"
+    }
+    $parts += $ctxStr
+}
+
+# session(5h) / week(7d)：限 Pro/Max、首次 API 回應後才有
 $fh = $d.rate_limits.five_hour.used_percentage
 $wk = $d.rate_limits.seven_day.used_percentage
-
 if ($null -ne $fh) {
     $fhi = [int][math]::Round([double]$fh)
     $parts += "session $(Bar $fh) ${fhi}%"
@@ -44,15 +64,6 @@ if ($null -ne $fh) {
 if ($null -ne $wk) {
     $wki = [int][math]::Round([double]$wk)
     $parts += "week $(Bar $wk) ${wki}%"
-}
-
-# rate_limits 都還沒 ready（剛開 session / 非 Pro·Max）→ 退回 context 窗用量
-if ($null -eq $fh -and $null -eq $wk) {
-    $ctx = $d.context_window.used_percentage
-    if ($null -ne $ctx) {
-        $ci = [int][math]::Round([double]$ctx)
-        $parts += "ctx $(Bar $ctx) ${ci}% (rate 待首次回應)"
-    }
 }
 
 [Console]::Out.Write(($parts -join '  │  '))

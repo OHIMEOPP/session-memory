@@ -29,6 +29,8 @@ $DEEP = "$E[38;2;226;109;138m"   # bar 填滿：深櫻花 #E26D8A
 $PALE = "$E[38;2;247;214;221m"   # bar 空格：淡櫻花 #F7D6DD
 $WARN = "$E[38;2;255;176;0m"     # 警示：>=80% 琥珀 #FFB000
 $CRIT = "$E[38;2;255;77;77m"     # 危險：>=90% 紅 #FF4D4D
+$ADD  = "$E[38;2;150;210;150m"   # 柔綠：新增行數 #96D296
+$DEL  = "$E[38;2;230;130;130m"   # 柔紅：刪除行數 #E68282
 $RST  = "$E[0m"
 
 # 依用量回傳警示色（>=90 紅 / >=80 琥珀 / 否則 $null = 用預設）
@@ -107,6 +109,19 @@ if ($null -ne $wk) {
     $rs = $d.rate_limits.seven_day.resets_at
     if ($null -ne $rs) { $seg += " ${PALE}↻ $(FmtEta ([double]$rs - $now))${MAIN}" }
     $parts += $seg
+}
+
+# 本 session 花費（$）：cost.total_cost_usd > 0 才顯示
+$costUsd = $d.cost.total_cost_usd
+if ($null -ne $costUsd -and [double]$costUsd -gt 0) {
+    $parts += ('$' + ('{0:N2}' -f [double]$costUsd))
+}
+
+# 程式碼增刪行數：+新增 柔綠 / -刪除 柔紅；兩者皆 0 不顯示
+$la = [int][double]$d.cost.total_lines_added
+$lr = [int][double]$d.cost.total_lines_removed
+if ($la -gt 0 -or $lr -gt 0) {
+    $parts += "${ADD}+${la}${MAIN}/${DEL}-${lr}${MAIN}"
 }
 
 [Console]::Out.Write($MAIN + ($parts -join '  │  ') + $RST)

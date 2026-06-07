@@ -64,11 +64,37 @@ function ToK([double]$n) {
     return "$([int][math]::Round($n))"
 }
 
-$parts = @()
+# 取當前 git 分支（fail-safe：非 repo / 無 git → 回 $null 不顯示）。detached HEAD 回 short sha。
+function GitBranch([string]$dir) {
+    if (-not $dir) { return $null }
+    try {
+        $b = (& git -C $dir rev-parse --abbrev-ref HEAD 2>$null)
+        if ($LASTEXITCODE -ne 0 -or -not $b) { return $null }
+        $b = "$b".Trim()
+        if ($b -eq 'HEAD') {
+            $b = (& git -C $dir rev-parse --short HEAD 2>$null)
+            $b = if ($b) { "$b".Trim() } else { $null }
+        }
+        return $b
+    } catch { return $null }
+}
+
+# 第 1 行＝身份/環境（model + git 分支 + ctx）；第 2 行＝用量/花費
+$line1 = @()
+$line2 = @()
 $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
 $model = $d.model.display_name
-if ($model) { $parts += $model }
+if ($model) { $line1 += $model }
+
+# git 分支：worktree 時 JSON 直接有，否則跑一次 git（fail-safe）
+$branch = $d.worktree.branch
+if (-not $branch) {
+    $dir = $d.cwd
+    if (-not $dir) { $dir = $d.workspace.current_dir }
+    $branch = GitBranch $dir
+}
+if ($branch) { $line1 += "${PALE}⎇${MAIN} $branch" }
 
 # context 窗用量：一定有，常駐顯示（含 token 數）。>=80% 變色
 $ctx = $d.context_window.used_percentage
@@ -84,7 +110,7 @@ if ($null -ne $ctx) {
         if ($used -le 0) { $used = $size * [double]$ctx / 100.0 }
         $ctxStr += " ($(ToK $used)/$(ToK $size))"
     }
-    $parts += $ctxStr
+    $line1 += $ctxStr
 }
 
 # session(5h) / week(7d)：限 Pro/Max、首次 API 回應後才有。含 reset 倒數 + >=80% 變色
@@ -98,7 +124,7 @@ if ($null -ne $fh) {
     $seg = "session $(Bar $fh 6 $bf) ${nc}${fhi}%${MAIN}"
     $rs = $d.rate_limits.five_hour.resets_at
     if ($null -ne $rs) { $seg += " ${PALE}↻ $(FmtEta ([double]$rs - $now))${MAIN}" }
-    $parts += $seg
+    $line2 += $seg
 }
 if ($null -ne $wk) {
     $wki = [int][math]::Round([double]$wk)
@@ -108,20 +134,25 @@ if ($null -ne $wk) {
     $seg = "week $(Bar $wk 6 $bf) ${nc}${wki}%${MAIN}"
     $rs = $d.rate_limits.seven_day.resets_at
     if ($null -ne $rs) { $seg += " ${PALE}↻ $(FmtEta ([double]$rs - $now))${MAIN}" }
-    $parts += $seg
+    $line2 += $seg
 }
 
 # 本 session 花費（$）：cost.total_cost_usd > 0 才顯示
 $costUsd = $d.cost.total_cost_usd
 if ($null -ne $costUsd -and [double]$costUsd -gt 0) {
-    $parts += ('$' + ('{0:N2}' -f [double]$costUsd))
+    $line2 += ('$' + ('{0:N2}' -f [double]$costUsd))
 }
 
 # 程式碼增刪行數：+新增 柔綠 / -刪除 柔紅；兩者皆 0 不顯示
 $la = [int][double]$d.cost.total_lines_added
 $lr = [int][double]$d.cost.total_lines_removed
 if ($la -gt 0 -or $lr -gt 0) {
-    $parts += "${ADD}+${la}${MAIN}/${DEL}-${lr}${MAIN}"
+    $line2 += "${ADD}+${la}${MAIN}/${DEL}-${lr}${MAIN}"
 }
 
-[Console]::Out.Write($MAIN + ($parts -join '  │  ') + $RST)
+# 輸出：第 1 行一定有；第 2 行有東西才印（rate_limits 未出現時整行省略）
+$out = $MAIN + ($line1 -join '  │  ') + $RST
+if ($line2.Count -gt 0) {
+    $out += "`n" + $MAIN + ($line2 -join '  │  ') + $RST
+}
+[Console]::Out.Write($out)

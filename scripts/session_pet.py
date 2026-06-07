@@ -235,6 +235,12 @@ if __name__ == "__main__":
             spawn_detached(["--waiting-window"])
     elif "--waiting-window" in args:
         main(mode="waiting-window")
+    elif "--unwait" in args:
+        # PostToolUse(AskUserQuestion)：用戶答完 → 清「等你回應」→ busy 視窗切回作業中
+        try:
+            WAITING_MARKER.unlink(missing_ok=True)
+        except Exception:
+            pass
     elif "--done" in args:
         # Stop：移除 .busy + .waiting → busy 視窗自己翻完成。沒在跑就 fallback 閃一下
         existed = BUSY_MARKER.exists()

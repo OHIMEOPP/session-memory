@@ -16,9 +16,10 @@
   --done             Stop hook 用：移除 .busy + .waiting → busy 視窗自己翻完成並關。
                      若沒有 busy 視窗在跑（標記不存在）→ fallback 閃一下完成視窗
 
-== 琥珀寵：等你回應（Notification hook）==
-  --waiting          Notification hook 用：建 .waiting 標記。busy 視窗在跑就讓它自己切
-                     琥珀；沒在跑（idle notification）才另起一隻 waiting 視窗
+== 琥珀寵：等你回應（PreToolUse AskUserQuestion hook）==
+  --waiting          PreToolUse(AskUserQuestion) 用：建 .waiting 標記。busy 視窗在跑就讓
+                     它自己切琥珀；沒在跑才另起一隻 waiting 視窗。
+                     （不接 idle/權限 Notification — 只在 Claude 真的丟問題給你選時才橘）
   --waiting-window   琥珀「等你回應 👀」動畫；.waiting 消失即自動關（不翻完成）
 
 == 藍色寵：萃取中 → 完成 ==

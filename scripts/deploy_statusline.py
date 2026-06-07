@@ -5,7 +5,8 @@
 agent / subagentStatusLine），且 user settings 的 statusLine 指令不展開
 ${CLAUDE_PLUGIN_ROOT}、plugin cache 路徑又含版本號。故：
   1. 把 plugin 內的 wrapper 模板冪等複製到 ~/.claude/scripts/（隨 /plugin update 更新）
-  2. 若 settings.json 還沒有任何 statusLine，補上指向該 wrapper 那行（已有則完全不動）
+  2. settings.json 沒 statusLine → 補一行指向 wrapper（含 refreshInterval）；已是本 wrapper
+     但缺 refreshInterval → 補上該 key；使用者自訂的別的 statusLine → 完全不動
 
 換機 = 裝 plugin 即全自動，免手動。改 settings.json 採保守策略：只在缺 key 時加、保留
 其餘設定、atomic 寫回。注意 statusLine 在 session 啟動時載入，本次寫入通常下個 session 生效。
@@ -34,17 +35,33 @@ def deploy_wrapper(root: Path):
         return None
 
 
+REFRESH_INTERVAL = 1  # 秒。讓 reset 倒數在 idle 時也每秒跳（倒數顯示到秒，見 usage_statusline.ps1）
+
+
 def ensure_statusline(wrapper: Path):
-    """settings.json 沒有 statusLine 才補上；已有任何 statusLine 則尊重使用者、完全不動。"""
+    """補/維護 settings.json 的 statusLine。
+    - 完全沒有 statusLine → 補一個指向 wrapper、含 refreshInterval 的完整 block。
+    - 已有「我們自己的」statusLine（command 指向本 wrapper）但缺 refreshInterval → 補上該 key。
+    - 使用者自訂的別的 statusLine（command 不是本 wrapper）→ 完全不動，尊重使用者。
+    """
     settings = Path.home() / ".claude" / "settings.json"
     try:
         # utf-8-sig：容忍帶 BOM 的 settings.json（某些編輯器/PowerShell 會寫 BOM），無 BOM 也正常
         data = json.loads(settings.read_text(encoding="utf-8-sig")) if settings.exists() else {}
-        if not isinstance(data, dict) or "statusLine" in data:
+        if not isinstance(data, dict):
             return
         # 正斜線：Windows 的 sh-like shell 會把反斜線當 escape 吃掉，導致路徑壞、command 靜默失敗
         cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File " + wrapper.as_posix()
-        data["statusLine"] = {"type": "command", "command": cmd}
+        sl = data.get("statusLine")
+        changed = False
+        if not isinstance(sl, dict):
+            data["statusLine"] = {"type": "command", "command": cmd, "refreshInterval": REFRESH_INTERVAL}
+            changed = True
+        elif WRAPPER_NAME in str(sl.get("command", "")) and "refreshInterval" not in sl:
+            sl["refreshInterval"] = REFRESH_INTERVAL
+            changed = True
+        if not changed:
+            return
         tmp = settings.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(tmp, settings)       # atomic

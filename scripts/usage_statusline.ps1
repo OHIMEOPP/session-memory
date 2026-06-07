@@ -40,15 +40,18 @@ function WarnColor([double]$pct) {
     return $null
 }
 
-# 秒數 → 緊湊倒數字串（2h13m / 47m / 3d4h / now）
+# 秒數 → 緊湊倒數字串，顯示到秒（6d23h12m05s / 2h13m05s / 47m12s / 45s / now）
 function FmtEta([double]$secs) {
     if ($secs -le 0) { return 'now' }
-    $m = [int][math]::Floor($secs / 60)
-    if ($m -lt 60) { return "${m}m" }
-    $h = [int][math]::Floor($m / 60); $mm = $m % 60
-    if ($h -lt 24) { return "${h}h${mm}m" }
-    $dd = [int][math]::Floor($h / 24); $hh = $h % 24
-    return "${dd}d${hh}h"
+    $t = [int][math]::Floor($secs)
+    $s = $t % 60
+    $m = [int][math]::Floor($t / 60) % 60
+    $h = [int][math]::Floor($t / 3600) % 24
+    $d = [int][math]::Floor($t / 86400)
+    if ($d -gt 0) { return ("{0}d{1}h{2:d2}m{3:d2}s" -f $d, $h, $m, $s) }
+    if ($h -gt 0) { return ("{0}h{1:d2}m{2:d2}s" -f $h, $m, $s) }
+    if ($m -gt 0) { return ("{0}m{1:d2}s" -f $m, $s) }
+    return "${s}s"
 }
 
 function Bar([double]$pct, [int]$n = 6, [string]$fill = $DEEP) {

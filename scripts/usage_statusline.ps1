@@ -79,6 +79,45 @@ function GitBranch([string]$dir) {
     } catch { return $null }
 }
 
+# 日圓→台幣匯率（100¥=NT$X.X）。非阻塞：render 只讀快取檔，過期就背景丟一隻 powershell
+# 去抓（10 分 TTL + 30s lock 防 stampede），絕不在 render 路徑等網路。快取存純數字（無 BOM）。
+function FxJpyTwd() {
+    $cache = Join-Path $env:TEMP 'sm_fx_jpy_twd.txt'
+    $fresh = $false
+    if (Test-Path $cache) {
+        $age = ((Get-Date) - (Get-Item $cache).LastWriteTime).TotalSeconds
+        if ($age -lt 600) { $fresh = $true }
+    }
+    if (-not $fresh) {
+        $lock = Join-Path $env:TEMP 'sm_fx_jpy_twd.lock'
+        $spawn = $true
+        if (Test-Path $lock) {
+            if (((Get-Date) - (Get-Item $lock).LastWriteTime).TotalSeconds -lt 30) { $spawn = $false }
+        }
+        if ($spawn) {
+            try { Set-Content -Path $lock -Value '1' -ErrorAction SilentlyContinue } catch { }
+            $child = @'
+try {
+  $r = Invoke-RestMethod -Uri "https://open.er-api.com/v6/latest/JPY" -TimeoutSec 8
+  $t = [double]$r.rates.TWD * 100
+  Set-Content -Path "__CACHE__" -Value ([string]([math]::Round($t,1))) -Encoding ascii
+} catch {}
+Remove-Item "__LOCK__" -ErrorAction SilentlyContinue
+'@
+            $child = $child.Replace('__CACHE__', $cache).Replace('__LOCK__', $lock)
+            try {
+                Start-Process powershell -WindowStyle Hidden -ErrorAction SilentlyContinue `
+                    -ArgumentList '-NoProfile', '-NonInteractive', '-Command', $child
+            } catch { }
+        }
+    }
+    if (Test-Path $cache) {
+        $v = (Get-Content $cache -Raw -ErrorAction SilentlyContinue)
+        if ($v) { return $v.Trim() }
+    }
+    return $null
+}
+
 # 第 1 行＝身份/環境（model + git 分支 + ctx）；第 2 行＝用量/花費
 $line1 = @()
 $line2 = @()
@@ -149,6 +188,10 @@ $lr = [int][double]$d.cost.total_lines_removed
 if ($la -gt 0 -or $lr -gt 0) {
     $line2 += "${ADD}+${la}${MAIN}/${DEL}-${lr}${MAIN}"
 }
+
+# 日圓匯率：100¥=NT$X.X（快取 10 分；首跑無快取會空著，下次 render 帶出）
+$fx = FxJpyTwd
+if ($fx) { $line2 += ('💴 100¥=NT$' + $fx) }
 
 # 輸出：第 1 行一定有；第 2 行有東西才印（rate_limits 未出現時整行省略）
 $out = $MAIN + ($line1 -join '  │  ') + $RST

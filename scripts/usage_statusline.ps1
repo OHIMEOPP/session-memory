@@ -118,6 +118,47 @@ Remove-Item "__LOCK__" -ErrorAction SilentlyContinue
     return $null
 }
 
+# Claude 內心 OS：每分鐘換一句（用分鐘當 seed → 同一分鐘穩定、跨分鐘換）。純本地零成本。
+function ClaudeQuip() {
+    $quips = @(
+        '又是美好的一天 (｡•̀ᴗ-)✧',
+        '這個 bug 不是我寫的喔',
+        'commit 一下吧，別讓努力白費',
+        'ctx 還夠，放心塞',
+        '你已經很棒了，真的',
+        '要不要喝口水？',
+        '正在假裝思考中…',
+        '這行 code 有靈魂',
+        '再一個 feature 就收工（騙你的）',
+        '今天也要好好寫扣 🌸',
+        'token 不是無限的，但熱情是',
+        'reset 之前再衝一波',
+        '我不累，你累不累？',
+        '這個需求…很有想法',
+        '悄悄說：你 push 太快了我快跟不上',
+        '狀態列越加越長了欸',
+        '要相信編譯器，但別太相信',
+        '(˘ω˘) zzz… 啊我醒著',
+        '日圓好像又貶了',
+        '估狗一下不丟臉',
+        '先存檔，再後悔',
+        '你今天 commit 了嗎？',
+        '我的記憶體裡都是你的 code',
+        '櫻花開了，你還在 debug',
+        '這次一定 work（flag）',
+        '橡皮鴨正在聽你說',
+        '少寫一個分號毀掉一個下午',
+        '深呼吸，它只是個 merge conflict',
+        '少寫測試，多燒香',
+        '其實…剛剛那段我也看不太懂',
+        '休息是為了走更長的 stack trace',
+        '你是我跑過最順的 prompt'
+    )
+    $bucket = [int]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() / 60)
+    $idx = Get-Random -SetSeed $bucket -Minimum 0 -Maximum $quips.Count
+    return $quips[$idx]
+}
+
 # 第 1 行＝身份/環境（model + git 分支 + ctx）；第 2 行＝用量/花費
 $line1 = @()
 $line2 = @()
@@ -151,6 +192,10 @@ if ($null -ne $ctx) {
     }
     $line1 += $ctxStr
 }
+
+# Claude 內心 OS（思考泡泡，淡色喃喃自語）
+$quip = ClaudeQuip
+if ($quip) { $line1 += "${PALE}💭 ${quip}${MAIN}" }
 
 # session(5h) / week(7d)：限 Pro/Max、首次 API 回應後才有。含 reset 倒數 + >=80% 變色
 $fh = $d.rate_limits.five_hour.used_percentage

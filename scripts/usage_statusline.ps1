@@ -27,13 +27,33 @@ $E = [char]27
 $MAIN = "$E[38;2;244;154;194m"   # 文字：櫻花粉 #F49AC2
 $DEEP = "$E[38;2;226;109;138m"   # bar 填滿：深櫻花 #E26D8A
 $PALE = "$E[38;2;247;214;221m"   # bar 空格：淡櫻花 #F7D6DD
+$WARN = "$E[38;2;255;176;0m"     # 警示：>=80% 琥珀 #FFB000
+$CRIT = "$E[38;2;255;77;77m"     # 危險：>=90% 紅 #FF4D4D
 $RST  = "$E[0m"
 
-function Bar([double]$pct, [int]$n = 6) {
+# 依用量回傳警示色（>=90 紅 / >=80 琥珀 / 否則 $null = 用預設）
+function WarnColor([double]$pct) {
+    if ($pct -ge 90) { return $CRIT }
+    if ($pct -ge 80) { return $WARN }
+    return $null
+}
+
+# 秒數 → 緊湊倒數字串（2h13m / 47m / 3d4h / now）
+function FmtEta([double]$secs) {
+    if ($secs -le 0) { return 'now' }
+    $m = [int][math]::Floor($secs / 60)
+    if ($m -lt 60) { return "${m}m" }
+    $h = [int][math]::Floor($m / 60); $mm = $m % 60
+    if ($h -lt 24) { return "${h}h${mm}m" }
+    $dd = [int][math]::Floor($h / 24); $hh = $h % 24
+    return "${dd}d${hh}h"
+}
+
+function Bar([double]$pct, [int]$n = 6, [string]$fill = $DEEP) {
     if ($pct -lt 0) { $pct = 0 }
     if ($pct -gt 100) { $pct = 100 }
-    $fill = [int][math]::Round($pct / 100.0 * $n)
-    "$DEEP$('▮' * $fill)$PALE$('▯' * ($n - $fill))$MAIN"
+    $f = [int][math]::Round($pct / 100.0 * $n)
+    "$fill$('▮' * $f)$PALE$('▯' * ($n - $f))$MAIN"
 }
 
 function ToK([double]$n) {
@@ -43,15 +63,19 @@ function ToK([double]$n) {
 }
 
 $parts = @()
+$now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
 $model = $d.model.display_name
 if ($model) { $parts += $model }
 
-# context 窗用量：一定有，常駐顯示（含 token 數）
+# context 窗用量：一定有，常駐顯示（含 token 數）。>=80% 變色
 $ctx = $d.context_window.used_percentage
 if ($null -ne $ctx) {
     $ci = [int][math]::Round([double]$ctx)
-    $ctxStr = "ctx $(Bar $ctx) ${ci}%"
+    $wc = WarnColor $ctx
+    $bf = if ($wc) { $wc } else { $DEEP }
+    $nc = if ($wc) { $wc } else { $MAIN }
+    $ctxStr = "ctx $(Bar $ctx 6 $bf) ${nc}${ci}%${MAIN}"
     $size = [double]$d.context_window.context_window_size
     if ($size -gt 0) {
         $used = [double]$d.context_window.total_input_tokens + [double]$d.context_window.total_output_tokens
@@ -61,16 +85,28 @@ if ($null -ne $ctx) {
     $parts += $ctxStr
 }
 
-# session(5h) / week(7d)：限 Pro/Max、首次 API 回應後才有
+# session(5h) / week(7d)：限 Pro/Max、首次 API 回應後才有。含 reset 倒數 + >=80% 變色
 $fh = $d.rate_limits.five_hour.used_percentage
 $wk = $d.rate_limits.seven_day.used_percentage
 if ($null -ne $fh) {
     $fhi = [int][math]::Round([double]$fh)
-    $parts += "session $(Bar $fh) ${fhi}%"
+    $wc = WarnColor $fh
+    $bf = if ($wc) { $wc } else { $DEEP }
+    $nc = if ($wc) { $wc } else { $MAIN }
+    $seg = "session $(Bar $fh 6 $bf) ${nc}${fhi}%${MAIN}"
+    $rs = $d.rate_limits.five_hour.resets_at
+    if ($null -ne $rs) { $seg += " ${PALE}↻$(FmtEta ([double]$rs - $now))${MAIN}" }
+    $parts += $seg
 }
 if ($null -ne $wk) {
     $wki = [int][math]::Round([double]$wk)
-    $parts += "week $(Bar $wk) ${wki}%"
+    $wc = WarnColor $wk
+    $bf = if ($wc) { $wc } else { $DEEP }
+    $nc = if ($wc) { $wc } else { $MAIN }
+    $seg = "week $(Bar $wk 6 $bf) ${nc}${wki}%${MAIN}"
+    $rs = $d.rate_limits.seven_day.resets_at
+    if ($null -ne $rs) { $seg += " ${PALE}↻$(FmtEta ([double]$rs - $now))${MAIN}" }
+    $parts += $seg
 }
 
 [Console]::Out.Write($MAIN + ($parts -join '  │  ') + $RST)

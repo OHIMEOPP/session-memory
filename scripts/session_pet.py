@@ -139,9 +139,28 @@ def main(mode="watch"):
     # 結束條件：busy 盯 .busy；wait 盯 .waiting；watch 盯 pending 清空
     if is_busy:
         done_face, done_msg, done_bar = "(๑˘ᴗ˘๑)b", "處理完成 ✓", DONE_BAR
+        # 記住出生時的 .busy token（= 建立它的 --busy 進程 pid）。
+        #   .busy 不見    → 正常 Stop 收尾 → 翻「處理完成」
+        #   token 變了    → 新一輪 prompt 蓋掉 → 靜默關（涵蓋 ESC 中斷後重送：
+        #                   Stop hook 在中斷時不觸發，靠下個 UserPromptSubmit 寫新 token 收掉舊寵）
+        my_token = None
+        for _ in range(6):
+            try:
+                my_token = BUSY_MARKER.read_text(encoding="utf-8").strip()
+                if my_token:
+                    break
+            except Exception:
+                pass
+            time.sleep(0.05)
 
         def cond_done():
-            return not BUSY_MARKER.exists()
+            try:
+                cur = BUSY_MARKER.read_text(encoding="utf-8").strip()
+            except Exception:
+                return True                  # 檔不見 = 正常收尾
+            if my_token is None:
+                return False                 # 不知自己 token → 退回只靠「檔不見」判斷
+            return cur != my_token           # token 變 = 被新回合取代
     elif is_wait:
         done_face = done_msg = done_bar = None   # wait 消失直接關，不翻完成
 
@@ -176,8 +195,11 @@ def main(mode="watch"):
             bar.config(text=BARS[i % len(BARS)])
         state["i"] += 1
         elapsed = time.time() - start
-        if (cond_done() and elapsed >= MIN_SECONDS) or elapsed > MAX_SECONDS:
-            if done_msg is None:     # wait：直接關，不翻完成
+        finished = cond_done()
+        # busy 被新回合取代（檔還在但 token 不同）：靜默關，不假裝完成、不等 MIN_SECONDS
+        superseded = is_busy and finished and BUSY_MARKER.exists()
+        if superseded or (finished and elapsed >= MIN_SECONDS) or elapsed > MAX_SECONDS:
+            if superseded or done_msg is None:   # 取代 / wait：直接關，不翻完成
                 root.destroy()
                 return
             paint(*GREEN)

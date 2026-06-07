@@ -95,7 +95,7 @@ if ($null -ne $fh) {
     $nc = if ($wc) { $wc } else { $MAIN }
     $seg = "session $(Bar $fh 6 $bf) ${nc}${fhi}%${MAIN}"
     $rs = $d.rate_limits.five_hour.resets_at
-    if ($null -ne $rs) { $seg += " ${PALE}↻$(FmtEta ([double]$rs - $now))${MAIN}" }
+    if ($null -ne $rs) { $seg += " ${PALE}↻ $(FmtEta ([double]$rs - $now))${MAIN}" }
     $parts += $seg
 }
 if ($null -ne $wk) {
@@ -105,7 +105,7 @@ if ($null -ne $wk) {
     $nc = if ($wc) { $wc } else { $MAIN }
     $seg = "week $(Bar $wk 6 $bf) ${nc}${wki}%${MAIN}"
     $rs = $d.rate_limits.seven_day.resets_at
-    if ($null -ne $rs) { $seg += " ${PALE}↻$(FmtEta ([double]$rs - $now))${MAIN}" }
+    if ($null -ne $rs) { $seg += " ${PALE}↻ $(FmtEta ([double]$rs - $now))${MAIN}" }
     $parts += $seg
 }
 

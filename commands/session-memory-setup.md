@@ -77,7 +77,7 @@ description: 安裝 / 檢查 session 記憶系統的依賴與後端
    | 變數 | 預設 | 說明 |
    |------|------|------|
    | `SM_PET_FRAME` | `half` | 取景：`half` 半身特寫 / `full` 全身 / `head` 大頭貼 |
-   | `SM_PET_MODEL` | Haru Greeter | 換模型：指向任一 Cubism 4 `*.model3.json` 的 URL |
+   | `SM_PET_MODEL` | Wanko 狗狗 | 換模型：指向任一 Cubism 4 `*.model3.json` 的 URL（官方範例另有 Haru / Hiyori / Mao / Rice 等）|
    | `SM_PET_SCALE` | （自動） | 給了就用固定縮放，覆蓋 `SM_PET_FRAME` 自動取景 |
    | `SM_PET_CAPTION` | `1` | 設 `0` 關閉底部狀態字幕 |
    | `SM_PET_IDLE_EXIT` | `30` | 閒置幾分鐘自動關窗；`0`＝永不 |
@@ -86,5 +86,7 @@ description: 安裝 / 檢查 session 記憶系統的依賴與後端
    想先看效果不必開 hook：`py -3 "${CLAUDE_PLUGIN_ROOT}/scripts/live2d_pet.py" --demo`
    （每 3 秒輪播待機→作業中→等你回應→萃取中→完成五種狀態）。
 
-> 模型用的是 Live2D 官方免費素材 **Haru Greeter**（Free Material License）；plugin 不
-> 內含模型檔，執行時才從 CDN 取，repo 保持乾淨、避免再散布授權問題。
+> 預設模型是 Live2D 官方免費素材 **Wanko（狗狗）**（Free Material License，CubismWebSamples）；
+> plugin 不內含模型檔，執行時才從 CDN 取，repo 保持乾淨、避免再散布授權問題。
+> 無表情的模型（Wanko/Hiyori/Rice…）狀態切換靠動作+字幕區分；要臉部表情變化可換 Haru/Mao
+> （8 表情）或 Natori（具名表情最多）。

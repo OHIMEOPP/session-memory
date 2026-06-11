@@ -30,6 +30,13 @@
     opacity: 0; transition: opacity .25s;
   }
   #caption.show { opacity: 1; }
+  #nametag {
+    position: fixed; left: 0; right: 0; top: 4px; text-align: center;
+    font-family: "Microsoft JhengHei UI", "Segoe UI", sans-serif;
+    font-size: 12px; font-weight: 700; color: #ffe9a6;
+    text-shadow: 0 1px 3px rgba(0,0,0,.9), 0 0 6px rgba(0,0,0,.7);
+    pointer-events: none;
+  }
   #err {
     position: fixed; inset: 0; display: none;
     align-items: center; justify-content: center;
@@ -40,6 +47,7 @@
 </head>
 <body>
 <canvas id="stage"></canvas>
+<div id="nametag"></div>
 <div id="caption"></div>
 <div id="err"></div>
 
@@ -47,24 +55,50 @@
 // ---- 從 URL query 取參數 ----
 const Q = new URLSearchParams(location.search);
 const MODEL_URL = Q.get('model')
-  || 'https://cdn.jsdelivr.net/gh/guansss/pixi-live2d-display@master/test/assets/haru/haru_greeter_t03.model3.json';
+  || 'https://cdn.jsdelivr.net/gh/Live2D/CubismWebSamples@master/Samples/Resources/Wanko/Wanko.model3.json';
 const SHOW_CAPTION = Q.get('caption') !== '0';
 const FRAME = (Q.get('frame') || 'half').toLowerCase();   // half | full | head
 const SCALE_OVERRIDE = Q.get('scale');                    // 給了就用固定縮放（覆蓋 frame）
 let initialState = Q.get('state') || 'idle';
 
-// ---- 狀態 → 表情 / 動作 / 字幕 映射（可自由調整）----
-// Haru Greeter 有表情 f00–f07、動作組 Idle / Tap。
-const STATE_MAP = {
-  idle:       { exp: 'f00', motion: null,   caption: '' },
-  busy:       { exp: 'f00', motion: null,   caption: '作業中…' },
-  waiting:    { exp: 'f03', motion: 'Tap',  caption: '等你回應 👀' },
-  extracting: { exp: 'f04', motion: null,   caption: 'session 萃取中…' },
-  done:       { exp: 'f01', motion: 'Tap',  caption: '處理完成 ✓' },
+// ---- 狀態意圖（與模型無關）----
+// 表情用「具名優先（prefs）→ 否則照索引（idx）」自動對應到該模型實際有的表情；
+// motion='tap' 觸發該模型的拍打/招呼動作組（Tap/TapBody…），'idle' 走待機。
+// 沒表情的模型（Hiyori/Mark/Rice/Wanko/狗）→ 只切動作+字幕，仍能區分狀態。
+const STATE_INTENT = {
+  idle:       { prefs: ['Normal', 'normal'],       idx: 0, motion: 'idle', caption: '' },
+  busy:       { prefs: ['Normal', 'normal'],       idx: 0, motion: 'idle', caption: '作業中…' },
+  waiting:    { prefs: ['Surprised', 'Smile'],     idx: 2, motion: 'tap',  caption: '等你回應 👀' },
+  extracting: { prefs: ['Sad', 'Normal'],          idx: 3, motion: 'idle', caption: 'session 萃取中…' },
+  done:       { prefs: ['Smile', 'Blushing'],      idx: 1, motion: 'tap',  caption: '處理完成 ✓' },
 };
+
+// 模型載入後填入：可用表情名清單、拍打動作組名
+let EXPR = [];          // ['F01','F02',…] 或 [] (無表情模型)
+let TAP_GROUP = null;   // 'Tap' / 'TapBody' / 首個非 Idle 組 / null
+
+function introspect() {
+  try {
+    const s = model.internalModel.settings;
+    EXPR = (s.expressions || []).map(e => e.Name || e.name).filter(Boolean);
+    const groups = Object.keys(s.motions || {});
+    TAP_GROUP = groups.find(g => /tap/i.test(g))
+             || groups.find(g => !/idle/i.test(g)) || null;
+  } catch (e) {}
+}
+
+function pickExpr(prefs, idx) {          // 具名優先，否則照索引夾範圍
+  for (const p of prefs) {
+    const hit = EXPR.find(n => n.toLowerCase() === p.toLowerCase());
+    if (hit) return hit;
+  }
+  return EXPR.length ? EXPR[Math.min(idx, EXPR.length - 1)] : null;
+}
 
 const captionEl = document.getElementById('caption');
 const errEl = document.getElementById('err');
+const NAME = Q.get('name') || '';
+if (NAME) document.getElementById('nametag').textContent = NAME;   // 預覽用名牌（常駐）
 function fail(msg) { errEl.textContent = msg; errEl.style.display = 'flex'; }
 
 // ---- 動態載入 CDN script（依序，cubismcore 必須先於 cubism4）----
@@ -89,10 +123,15 @@ async function boot() {
   if (!window.PIXI || !PIXI.live2d) return fail('PIXI / live2d 未就緒');
 
   const canvas = document.getElementById('stage');
+  // 固定解析度（不隨螢幕變）：避免跨不同 DPI 螢幕當下換 resolution → 緩衝重建造成的
+  // 「閃一下變大變小」。取啟動螢幕 DPR 與 2 的較大值，確保到 200% 螢幕仍銳利；
+  // 較低 DPI 螢幕上只是超採樣（更銳，無副作用）。佈局一律用邏輯尺寸，與此無關。
+  const FIXED_RES = Math.max(window.devicePixelRatio || 1, 2);
   app = new PIXI.Application({
-    view: canvas, resizeTo: window,
+    view: canvas,
+    width: window.innerWidth, height: window.innerHeight,
     backgroundAlpha: 0, antialias: true,
-    autoDensity: true, resolution: window.devicePixelRatio || 1,
+    autoDensity: true, resolution: FIXED_RES,
   });
 
   try {
@@ -100,15 +139,23 @@ async function boot() {
   } catch (e) { return fail('模型載入失敗\n' + e.message); }
 
   app.stage.addChild(model);
-  layout();
-  window.addEventListener('resize', layout);
+  introspect();                  // 讀此模型實際有的表情/動作組
+  fit();
+  window.addEventListener('resize', fit);
   ready = true;
   setPetState(initialState);     // 套用初始狀態
 }
 
+// 視窗尺寸變動時只重排；解析度固定不動（跨螢幕不重建緩衝 → 不閃跳）。
+function fit() {
+  if (!app) return;
+  app.renderer.resize(window.innerWidth, window.innerHeight);  // 邏輯尺寸通常不變 → 多為 no-op
+  layout();
+}
+
 function layout() {
   if (!model || !app) return;
-  const W = app.renderer.width, H = app.renderer.height;
+  const W = app.renderer.screen.width, H = app.renderer.screen.height;  // 邏輯尺寸（DPI 無關）
   const im = model.internalModel || {};
   const mw = im.width || 1000, mh = im.height || 1000;   // 模型邏輯尺寸（非縮放後）
   let s, ay, y;
@@ -130,14 +177,16 @@ function layout() {
 // ---- 對外介面：Python 透過 runJavaScript 呼叫 ----
 window.setPetState = function (state) {
   initialState = state;
-  const m = STATE_MAP[state] || STATE_MAP.idle;
+  const m = STATE_INTENT[state] || STATE_INTENT.idle;
   if (SHOW_CAPTION) {
     captionEl.textContent = m.caption || '';
     captionEl.classList.toggle('show', !!m.caption);
   }
   if (!ready || !model) return;
-  try { if (m.exp) model.expression(m.exp); } catch (e) {}
-  try { if (m.motion) model.motion(m.motion, undefined, 3 /*FORCE*/); } catch (e) {}
+  const exp = pickExpr(m.prefs, m.idx);
+  try { if (exp) model.expression(exp); } catch (e) {}
+  // 短暫狀態（等你回應 / 完成）觸發拍打動作增加生氣；待機/作業中靠自動 idle 動作
+  try { if (m.motion === 'tap' && TAP_GROUP) model.motion(TAP_GROUP, undefined, 3 /*FORCE*/); } catch (e) {}
 };
 
 boot();

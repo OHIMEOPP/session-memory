@@ -6,7 +6,7 @@
       "name": "session-memory",
       "source": "./",
       "description": "每次 session 結束自動智慧萃取成摘要，存進按專案分艙的本機向量庫；下個 session 可語意檢索過去脈絡。附桌寵：對話作業中→完成（綠）/ session 萃取中→完成（藍）；可選 Live2D 立繪寵（SM_PET_STYLE=live2d，需 PySide6，載不動自動退回顏文字）。另附 usage statusLine：狀態列常駐顯示 /usage 的 session(5h)+week(7d) 用量%（含 reset 倒數，>=80% 變橘/>=90% 變紅警示）+ 本 session 花費$ 與程式碼增刪行數；兩行排版（第1行 model+git分支+ctx，第2行用量/花費）。",
-      "version": "0.7.0"
+      "version": "0.7.1"
     }
   ]
 }

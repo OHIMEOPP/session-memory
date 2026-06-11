@@ -2,7 +2,8 @@
 """Live2D 桌寵：session 記憶的視覺指示器（會動的立繪版）。
 
 PySide6 QWebEngineView 撐起一個**透明、無邊框、always-on-top、可拖曳**的小窗，
-裡頭 pet.html 用 pixi-live2d-display 跑官方免費模型（Haru Greeter，Cubism 4）。
+裡頭 pet.html 用 pixi-live2d-display 跑官方免費模型（預設 Wanko 狗狗，Cubism 4；
+SM_PET_MODEL 可換任一 Cubism 4 model3.json URL）。
 資源全走 CDN；離線、PySide6 缺、模型載不到 → 一律靜默退出（exit 0），由
 session_pet.py 退回顏文字寵。**純 cosmetic，掛了不影響任何記憶功能。**
 
@@ -40,8 +41,8 @@ PENDING_DIR = DB_DIR / ".pending"
 BUSY_MARKER = DB_DIR / ".busy"
 WAITING_MARKER = DB_DIR / ".waiting"
 
-DEFAULT_MODEL = ("https://cdn.jsdelivr.net/gh/guansss/pixi-live2d-display@master"
-                 "/test/assets/haru/haru_greeter_t03.model3.json")
+DEFAULT_MODEL = ("https://cdn.jsdelivr.net/gh/Live2D/CubismWebSamples@master"
+                 "/Samples/Resources/Wanko/Wanko.model3.json")   # 官方免費素材狗狗
 MODEL_URL = os.environ.get("SM_PET_MODEL", DEFAULT_MODEL)
 FRAME = os.environ.get("SM_PET_FRAME", "half")        # half 半身 | full 全身 | head 大頭
 SCALE = os.environ.get("SM_PET_SCALE", "")            # 給了才覆蓋 frame 自動縮放
@@ -117,6 +118,17 @@ def main(demo=False):
         return 0          # 已有一隻在跑
     _dbg("guard passed")
 
+    # 多螢幕 DPI 一致性：把行程設為「系統 DPI 感知」（非 per-monitor），跟 tkinter 顏文字
+    # 寵同款行為——跨不同縮放螢幕時由 Windows 統一點陣縮放，Qt 不再逐螢幕重縮放，桌寵尺寸
+    # 恆定，根治「來回拖累積放大縮小」（副螢幕略糊為代價）。必須在 QApplication 建立前呼叫。
+    if os.name == "nt":
+        # Qt 原生：強制 windows 平台用「系統 DPI 感知」（1=system, 2=per-monitor 預設）
+        os.environ.setdefault("QT_QPA_PLATFORM", "windows:dpiawareness=1")
+        try:
+            import ctypes
+            ctypes.windll.user32.SetProcessDPIAware()      # 雙保險：行程層級也設系統感知
+        except Exception:
+            pass
     app = QApplication.instance() or QApplication(sys.argv)
 
     # ---- 透明、無邊框、置頂、不進工作列的窗 ----
@@ -181,17 +193,47 @@ def main(demo=False):
     q = f"model={MODEL_URL}&caption={CAPTION}&frame={FRAME}&state={init_state}"
     if SCALE:
         q += f"&scale={SCALE}"
+    name = os.environ.get("SM_PET_NAME", "")        # 預覽名牌（常駐顯示在頂端）
+    if name:
+        from urllib.parse import quote
+        q += f"&name={quote(name)}"
     url.setQuery(q)
     view.load(url)
     _dbg("view.load done")
 
-    # ---- 視窗大小 / 定位右下角 ----
+    # ---- 視窗大小 / 定位（預設右下角；SM_PET_POS="x,y" 可指定，gallery 平鋪用）----
     W, H = 300, 380
     win.resize(W, H)
     scr = app.primaryScreen().availableGeometry()
-    win.move(scr.right() - W - 24, scr.bottom() - H - 16)
+    pos = os.environ.get("SM_PET_POS", "")
+    if pos and "," in pos:
+        try:
+            x, y = (int(v) for v in pos.split(",", 1))
+            win.move(x, y)
+        except Exception:
+            win.move(scr.right() - W - 24, scr.bottom() - H - 16)
+    else:
+        win.move(scr.right() - W - 24, scr.bottom() - H - 16)
     win.show()
     _dbg("win.show done")
+
+    # 跨螢幕（不同 DPI）時：① 釘回固定邏輯尺寸，防 Qt 換算捨入誤差「來回拖累積縮小」；
+    # ② 觸發 JS 重排重算模型位置。解析度在 pet.html 固定不動，故不會閃跳。
+    def _on_screen(*_):
+        try:
+            win.resize(W, H)
+        except Exception:
+            pass
+        try:
+            view.page().runJavaScript("window.dispatchEvent(new Event('resize'))")
+        except Exception:
+            pass
+    try:
+        wh = win.windowHandle()
+        if wh is not None:
+            wh.screenChanged.connect(_on_screen)
+    except Exception:
+        pass
 
     def set_state(st):
         view.page().runJavaScript(

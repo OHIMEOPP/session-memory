@@ -47,33 +47,38 @@ description: 安裝 / 檢查 session 記憶系統的依賴與後端
 
 ---
 
-## （可選）Live2D 立繪桌寵
+## 5. Live2D 立繪桌寵（預設啟用 Wanko 狗狗）
 
-預設桌寵是輕量顏文字版（tkinter，零依賴）。若想換成**會動的 Live2D 立繪角色**
-（透明懸浮窗、半身特寫、隨對話/萃取切換表情動作），照以下做：
+**這是標準 setup 步驟，預設就把會動的 Live2D 立繪寵（Wanko 狗狗）裝好並啟用**——
+使用者不用另外開口、不用換電腦再手動叫人裝。失敗（缺網／裝不動／離線）會**自動退回
+顏文字寵**，永不影響記憶萃取功能，所以 setup 一律放心執行這步。
 
-1. **裝 PySide6**（含 QtWebEngine；約 200MB，鎖同一個直譯器）：
+a. **裝 PySide6**（含 QtWebEngine；約 200MB，鎖 `py -3` 同一直譯器）：
    ```
    py -3 -m pip install PySide6
    ```
    裝完**務必用同一個 `py -3` 驗證**（機器常有多個 Python 3.x，裝錯邊 hook 會找不到）：
    ```
-   py -3 -c "import PySide6; print('PySide6 OK')"
+   py -3 -c "import PySide6; from PySide6.QtWebEngineWidgets import QWebEngineView; print('PySide6 OK')"
    ```
-   印不出 OK＝裝到別的直譯器了。hook 與桌寵 daemon 都鎖 `py -3` / `sys.executable`，
-   **務必確保 PySide6 在 `py -3` 這個直譯器底下**（用 `py -0p` 看 `py -3` 指向誰）。
+   印不出 OK＝裝到別的直譯器了（用 `py -0p` 看 `py -3` 指向誰）。hook 與桌寵 daemon 都鎖
+   `py -3` / `sys.executable`，**務必確保 PySide6 在 `py -3` 這個直譯器底下**。
    - Windows 另需 **WebView2 / Edge runtime**（Win11、有裝 Edge 即內建，通常免裝）。
    - 角色模型與 pixi/cubism 引擎**首次執行從 CDN 載入**（需一次性網路；之後 Chromium 會快取）。
 
-2. **開啟立繪模式**——設環境變數讓所有 hook 進程看得到（寫進 `~/.claude/settings.json` 的
-   `env`，或系統環境變數）：
+b. **啟用立繪模式**——把環境變數寫進 `~/.claude/settings.json` 的 `env`（hook 進程才看得到；
+   沒有 `env` 區塊就建一個）。setup 直接幫使用者寫好，不用他自己編輯：
+   ```json
+   "env": {
+     "SM_PET_STYLE": "live2d",
+     "SM_PET_PERSIST": "1"
+   }
    ```
-   SM_PET_STYLE=live2d
-   ```
-   不設或設別的值＝維持顏文字寵。**Live2D 載不動（缺 PySide6 / 離線 / 模型失敗）會自動
-   退回顏文字寵，永不影響記憶萃取功能。**
+   `SM_PET_STYLE=live2d` 啟用立繪（不設或設別的值＝維持顏文字寵）；`SM_PET_PERSIST=1`＝桌寵
+   一直待在桌面（想要閒置 5 分自動「回家」就拿掉這行）。**env 改動下個 session 才生效。**
+   想當場先看效果不必等：`py -3 "${CLAUDE_PLUGIN_ROOT}/scripts/live2d_pet.py" --demo`。
 
-3. **可調環境變數**（皆選填）：
+c. **其他可調環境變數**（皆選填）：
    | 變數 | 預設 | 說明 |
    |------|------|------|
    | `SM_PET_FRAME` | `half` | 取景：`half` 半身特寫 / `full` 全身 / `head` 大頭貼 |

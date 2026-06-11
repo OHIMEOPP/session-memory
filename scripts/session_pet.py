@@ -3,6 +3,11 @@
 
 右下角 always-on-top 小視窗，可拖曳搬位置。純 cosmetic，掛了不影響任何功能。
 
+== 風格切換 ==
+env SM_PET_STYLE=live2d → 改走 Live2D 立繪寵（live2d_pet.py，需 PySide6）：本檔只負責
+寫/清標記（.busy/.waiting/.pending 語意不變）+ 確保常駐 daemon 在跑，不開 tkinter 窗。
+不設或設 kaomoji（預設）→ 以下顏文字寵邏輯。立繪載不動時 daemon 自己 exit、標記仍在。
+
 兩色系桌寵，明確區隔來源：
   🟢 綠 = 對話一回合（同一隻：作業中 → 處理完成）
   🟡 琥珀 = 等你回應（Claude 停下來等你選擇 / 輸入時）
@@ -46,6 +51,11 @@ MIN_SECONDS = 2.5            # 動畫最短顯示，避免一閃而過
 MAX_SECONDS = 20 * 60        # 安全上限，防卡死（hook 沒正常收尾時）
 DONE_SECONDS = 2.2           # --done-window 固定一閃秒數
 TICK_MS = 450                # 動畫 + 偵測間隔
+
+# 桌寵風格：kaomoji（預設，顏文字 tkinter 寵）| live2d（PySide6 立繪寵）。
+# live2d 模式只「寫標記 + 確保常駐 daemon 在跑」，由 live2d_pet.py 讀標記切動作；
+# daemon 載不動（缺 PySide6 / 離線 / 模型失敗）會自己 exit 0，標記仍在 → 不影響功能。
+PET_STYLE = os.environ.get("SM_PET_STYLE", "kaomoji").strip().lower()
 
 # 配色 (BG, FG, AC)：完成/作業中=綠系，等你回應=琥珀系，萃取中=藍系
 GREEN = ("#1b2b22", "#cdf4d6", "#a6e3a1")
@@ -217,14 +227,76 @@ def main(mode="watch"):
 
 def spawn_detached(extra_args):
     """背景 detach 一份自己（hook 用：叫起視窗後立刻返回，不阻塞）。"""
+    _spawn(os.path.abspath(__file__), extra_args)
+
+
+def _spawn(script, extra_args):
     flags = (0x00000008 | 0x08000000) if os.name == "nt" else 0  # DETACHED | NO_WINDOW
     try:
         subprocess.Popen(
-            [sys.executable, os.path.abspath(__file__), *extra_args],
+            [sys.executable, script, *extra_args],
             creationflags=flags, stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
     except Exception:
         pass                         # cosmetic，失敗不影響任何事
+
+
+# ============ Live2D 模式：常駐 daemon 啟動（live2d_pet.py 自己讀標記切動作）============
+def _live2d_running():
+    """daemon 已在跑？Windows 探具名 mutex（輕量、免 import PySide6）；非 Windows 一律 False（讓 daemon 自己用 lockfile 去重）。"""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        slug = DB_DIR.name or "default"
+        SYNCHRONIZE = 0x00100000
+        h = ctypes.windll.kernel32.OpenMutexW(
+            SYNCHRONIZE, False, f"Global\\sm_live2d_pet_{slug}")
+        if h:
+            ctypes.windll.kernel32.CloseHandle(h)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def ensure_live2d():
+    """沒在跑就 detach 啟動 Live2D daemon（重複呼叫安全：mutex 探測 + daemon 自帶單例鎖）。"""
+    if _live2d_running():
+        return
+    _spawn(os.path.join(os.path.dirname(os.path.abspath(__file__)), "live2d_pet.py"), [])
+
+
+def live2d_dispatch(args):
+    """live2d 模式的 hook 入口：只動標記 + 確保 daemon 在。標記語意與顏文字版完全相同。"""
+    if "--busy" in args:
+        try:
+            BUSY_MARKER.parent.mkdir(parents=True, exist_ok=True)
+            BUSY_MARKER.write_text(str(os.getpid()), encoding="utf-8")
+            WAITING_MARKER.unlink(missing_ok=True)
+        except Exception:
+            pass
+        ensure_live2d()
+    elif "--waiting" in args:
+        try:
+            WAITING_MARKER.parent.mkdir(parents=True, exist_ok=True)
+            WAITING_MARKER.write_text(str(os.getpid()), encoding="utf-8")
+        except Exception:
+            pass
+        ensure_live2d()
+    elif "--unwait" in args:
+        try:
+            WAITING_MARKER.unlink(missing_ok=True)
+        except Exception:
+            pass
+    elif "--done" in args:
+        try:
+            BUSY_MARKER.unlink(missing_ok=True)
+            WAITING_MARKER.unlink(missing_ok=True)
+        except Exception:
+            pass
+    else:
+        ensure_live2d()              # bare：萃取中藍寵 → daemon 讀 .pending 自己顯示
 
 
 if __name__ == "__main__":
@@ -235,6 +307,9 @@ if __name__ == "__main__":
     if os.environ.get("LIFEWIKI_NO_HOOK"):
         sys.exit(0)
     args = sys.argv[1:]
+    if PET_STYLE == "live2d":            # 立繪寵：改走 daemon + 標記，不開 tkinter 顏文字窗
+        live2d_dispatch(args)
+        sys.exit(0)
     if "--busy" in args:
         # UserPromptSubmit：建 .busy + 清 .waiting（新回合開始）→ detach 綠色視窗 → return
         try:

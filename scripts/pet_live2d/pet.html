@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<!--
+  Live2D 桌寵渲染頁 — pixi.js + pixi-live2d-display + 官方 Cubism Core。
+  由 live2d_pet.py 的 QWebEngineView 載入（透明背景）。
+  對外介面：window.setPetState('idle'|'busy'|'waiting'|'extracting'|'done')
+  資源全走 CDN（jsdelivr / cubism 官方）；離線時 Python 端會退回顏文字寵。
+
+  模型 URL / 初始狀態 / 是否顯示字幕 由 URL query 帶入：
+    pet.html?model=<url>&state=idle&caption=1&scale=0.15
+-->
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: transparent; overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+    cursor: default;
+  }
+  #stage { display: block; width: 100%; height: 100%; background: transparent; }
+  #caption {
+    position: fixed; left: 0; right: 0; bottom: 6px;
+    text-align: center;
+    font-family: "Microsoft JhengHei UI", "Segoe UI", sans-serif;
+    font-size: 12px; font-weight: 600;
+    color: #f2f4ff;
+    text-shadow: 0 1px 3px rgba(0,0,0,.85), 0 0 6px rgba(0,0,0,.6);
+    pointer-events: none;
+    opacity: 0; transition: opacity .25s;
+  }
+  #caption.show { opacity: 1; }
+  #err {
+    position: fixed; inset: 0; display: none;
+    align-items: center; justify-content: center;
+    font-family: sans-serif; font-size: 12px; color: #f5c2c7;
+    text-align: center; padding: 12px; background: rgba(20,10,12,.5);
+  }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<div id="caption"></div>
+<div id="err"></div>
+
+<script>
+// ---- 從 URL query 取參數 ----
+const Q = new URLSearchParams(location.search);
+const MODEL_URL = Q.get('model')
+  || 'https://cdn.jsdelivr.net/gh/guansss/pixi-live2d-display@master/test/assets/haru/haru_greeter_t03.model3.json';
+const SHOW_CAPTION = Q.get('caption') !== '0';
+const FRAME = (Q.get('frame') || 'half').toLowerCase();   // half | full | head
+const SCALE_OVERRIDE = Q.get('scale');                    // 給了就用固定縮放（覆蓋 frame）
+let initialState = Q.get('state') || 'idle';
+
+// ---- 狀態 → 表情 / 動作 / 字幕 映射（可自由調整）----
+// Haru Greeter 有表情 f00–f07、動作組 Idle / Tap。
+const STATE_MAP = {
+  idle:       { exp: 'f00', motion: null,   caption: '' },
+  busy:       { exp: 'f00', motion: null,   caption: '作業中…' },
+  waiting:    { exp: 'f03', motion: 'Tap',  caption: '等你回應 👀' },
+  extracting: { exp: 'f04', motion: null,   caption: 'session 萃取中…' },
+  done:       { exp: 'f01', motion: 'Tap',  caption: '處理完成 ✓' },
+};
+
+const captionEl = document.getElementById('caption');
+const errEl = document.getElementById('err');
+function fail(msg) { errEl.textContent = msg; errEl.style.display = 'flex'; }
+
+// ---- 動態載入 CDN script（依序，cubismcore 必須先於 cubism4）----
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = res;
+    s.onerror = () => rej(new Error('load fail: ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+let app = null, model = null, ready = false;
+
+async function boot() {
+  try {
+    await loadScript('https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js');
+    await loadScript('https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js');
+    await loadScript('https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js');
+  } catch (e) { return fail('資源載入失敗（離線？）\n' + e.message); }
+
+  if (!window.PIXI || !PIXI.live2d) return fail('PIXI / live2d 未就緒');
+
+  const canvas = document.getElementById('stage');
+  app = new PIXI.Application({
+    view: canvas, resizeTo: window,
+    backgroundAlpha: 0, antialias: true,
+    autoDensity: true, resolution: window.devicePixelRatio || 1,
+  });
+
+  try {
+    model = await PIXI.live2d.Live2DModel.from(MODEL_URL, { autoInteract: false });
+  } catch (e) { return fail('模型載入失敗\n' + e.message); }
+
+  app.stage.addChild(model);
+  layout();
+  window.addEventListener('resize', layout);
+  ready = true;
+  setPetState(initialState);     // 套用初始狀態
+}
+
+function layout() {
+  if (!model || !app) return;
+  const W = app.renderer.width, H = app.renderer.height;
+  const im = model.internalModel || {};
+  const mw = im.width || 1000, mh = im.height || 1000;   // 模型邏輯尺寸（非縮放後）
+  let s, ay, y;
+  if (SCALE_OVERRIDE) {                 // 顯式縮放：置中
+    s = parseFloat(SCALE_OVERRIDE); ay = 0.5; y = H * 0.52;
+  } else if (FRAME === 'full') {        // 全身入鏡：整隻塞進窗、置中
+    s = Math.min((W * 0.95) / mw, (H * 0.92) / mh); ay = 0.5; y = H * 0.5;
+  } else if (FRAME === 'head') {        // 大頭貼：放大、貼頂只露臉+肩
+    s = (W * 2.7) / mw; ay = 0.0; y = H * 0.03;
+  } else {                              // half（預設）：半身特寫，錨點貼頂→頭頂必留邊、框到腰
+    s = (W * 1.7) / mw; ay = 0.0; y = H * 0.04;
+  }
+  model.scale.set(s);
+  model.anchor.set(0.5, ay);            // 水平置中；垂直依取景（0=貼頂、0.5=置中）
+  model.x = W / 2;
+  model.y = y;
+}
+
+// ---- 對外介面：Python 透過 runJavaScript 呼叫 ----
+window.setPetState = function (state) {
+  initialState = state;
+  const m = STATE_MAP[state] || STATE_MAP.idle;
+  if (SHOW_CAPTION) {
+    captionEl.textContent = m.caption || '';
+    captionEl.classList.toggle('show', !!m.caption);
+  }
+  if (!ready || !model) return;
+  try { if (m.exp) model.expression(m.exp); } catch (e) {}
+  try { if (m.motion) model.motion(m.motion, undefined, 3 /*FORCE*/); } catch (e) {}
+};
+
+boot();
+</script>
+</body>
+</html>

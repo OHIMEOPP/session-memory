@@ -44,3 +44,47 @@ description: 安裝 / 檢查 session 記憶系統的依賴與後端
 
 裝好後，之後每個專案 `/exit` 或 `/clear` 都會自動把該 session 萃取進「該專案的艙」，
 用 `/session-recall <問題>` 檢索。萃取主力走 claude CLI（你跑 Claude Code 就有），不需額外設定。
+
+---
+
+## （可選）Live2D 立繪桌寵
+
+預設桌寵是輕量顏文字版（tkinter，零依賴）。若想換成**會動的 Live2D 立繪角色**
+（透明懸浮窗、半身特寫、隨對話/萃取切換表情動作），照以下做：
+
+1. **裝 PySide6**（含 QtWebEngine；約 200MB，鎖同一個直譯器）：
+   ```
+   py -3 -m pip install PySide6
+   ```
+   裝完**務必用同一個 `py -3` 驗證**（機器常有多個 Python 3.x，裝錯邊 hook 會找不到）：
+   ```
+   py -3 -c "import PySide6; print('PySide6 OK')"
+   ```
+   印不出 OK＝裝到別的直譯器了。hook 與桌寵 daemon 都鎖 `py -3` / `sys.executable`，
+   **務必確保 PySide6 在 `py -3` 這個直譯器底下**（用 `py -0p` 看 `py -3` 指向誰）。
+   - Windows 另需 **WebView2 / Edge runtime**（Win11、有裝 Edge 即內建，通常免裝）。
+   - 角色模型與 pixi/cubism 引擎**首次執行從 CDN 載入**（需一次性網路；之後 Chromium 會快取）。
+
+2. **開啟立繪模式**——設環境變數讓所有 hook 進程看得到（寫進 `~/.claude/settings.json` 的
+   `env`，或系統環境變數）：
+   ```
+   SM_PET_STYLE=live2d
+   ```
+   不設或設別的值＝維持顏文字寵。**Live2D 載不動（缺 PySide6 / 離線 / 模型失敗）會自動
+   退回顏文字寵，永不影響記憶萃取功能。**
+
+3. **可調環境變數**（皆選填）：
+   | 變數 | 預設 | 說明 |
+   |------|------|------|
+   | `SM_PET_FRAME` | `half` | 取景：`half` 半身特寫 / `full` 全身 / `head` 大頭貼 |
+   | `SM_PET_MODEL` | Haru Greeter | 換模型：指向任一 Cubism 4 `*.model3.json` 的 URL |
+   | `SM_PET_SCALE` | （自動） | 給了就用固定縮放，覆蓋 `SM_PET_FRAME` 自動取景 |
+   | `SM_PET_CAPTION` | `1` | 設 `0` 關閉底部狀態字幕 |
+   | `SM_PET_IDLE_EXIT` | `30` | 閒置幾分鐘自動關窗；`0`＝永不 |
+
+   立繪寵是**一隻常駐窗**（單例，每專案一隻），可拖曳移動、**雙擊關閉**。
+   想先看效果不必開 hook：`py -3 "${CLAUDE_PLUGIN_ROOT}/scripts/live2d_pet.py" --demo`
+   （每 3 秒輪播待機→作業中→等你回應→萃取中→完成五種狀態）。
+
+> 模型用的是 Live2D 官方免費素材 **Haru Greeter**（Free Material License）；plugin 不
+> 內含模型檔，執行時才從 CDN 取，repo 保持乾淨、避免再散布授權問題。

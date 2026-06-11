@@ -21,10 +21,12 @@ session_pet.py 退回顏文字寵。**純 cosmetic，掛了不影響任何記憶
   py live2d_pet.py            常駐 watch（讀標記，預設）
   py live2d_pet.py --demo     不讀標記，每 3s 輪播五狀態（看效果用）
 環境變數：
-  SM_PET_MODEL    覆蓋模型 model3.json URL（預設 Haru Greeter）
-  SM_PET_SCALE    模型縮放（預設 0.15）
+  SM_PET_MODEL    覆蓋模型 model3.json URL（預設 Wanko 狗狗）
+  SM_PET_FRAME    取景 half|full|head（預設 half）
+  SM_PET_SCALE    固定縮放（給了才覆蓋 frame 自動取景）
   SM_PET_CAPTION  0 關閉字幕（預設開）
-  SM_PET_IDLE_EXIT  閒置幾分鐘自動關（預設 30；0=永不）
+  SM_PET_PERSIST  1=永遠待著不回家（預設 0：閒置滿 IDLE_EXIT 分鐘自動回家）
+  SM_PET_IDLE_EXIT  閒置幾分鐘「回家」關 daemon（預設 5；0=永不）
 """
 import os
 import sys
@@ -47,7 +49,8 @@ MODEL_URL = os.environ.get("SM_PET_MODEL", DEFAULT_MODEL)
 FRAME = os.environ.get("SM_PET_FRAME", "half")        # half 半身 | full 全身 | head 大頭
 SCALE = os.environ.get("SM_PET_SCALE", "")            # 給了才覆蓋 frame 自動縮放
 CAPTION = "0" if os.environ.get("SM_PET_CAPTION") == "0" else "1"
-IDLE_EXIT_MIN = float(os.environ.get("SM_PET_IDLE_EXIT", "30"))
+IDLE_EXIT_MIN = float(os.environ.get("SM_PET_IDLE_EXIT", "5"))   # 閒置幾分鐘「回家」
+PERSIST = os.environ.get("SM_PET_PERSIST", "0") == "1"           # 1=永遠待著不回家
 
 POLL_MS = 500          # 標記輪詢間隔
 DONE_HOLD_S = 2.2      # 「處理完成」停留秒數
@@ -270,10 +273,12 @@ def main(demo=False):
         if target != st["cur"]:
             st["cur"] = target
             set_state(target)
-        # 閒置自動關（demo 不關）
+        # 連續工作時保持顯示；閒置滿 IDLE_EXIT_MIN 分鐘才「回家」：關掉 daemon（視窗消失
+        # + 釋放記憶體），下次有事由 session_pet 的 ensure_live2d 自動重啟。
+        # demo 不回家；SM_PET_PERSIST=1 永遠待著不回家。
         if target != "idle":
             st["last_active"] = now
-        elif IDLE_EXIT_MIN > 0 and not demo:
+        elif IDLE_EXIT_MIN > 0 and not demo and not PERSIST:
             if now - st["last_active"] > IDLE_EXIT_MIN * 60:
                 win.close()
 

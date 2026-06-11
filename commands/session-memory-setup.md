@@ -80,7 +80,8 @@ description: 安裝 / 檢查 session 記憶系統的依賴與後端
    | `SM_PET_MODEL` | Wanko 狗狗 | 換模型：指向任一 Cubism 4 `*.model3.json` 的 URL（官方範例另有 Haru / Hiyori / Mao / Rice 等）|
    | `SM_PET_SCALE` | （自動） | 給了就用固定縮放，覆蓋 `SM_PET_FRAME` 自動取景 |
    | `SM_PET_CAPTION` | `1` | 設 `0` 關閉底部狀態字幕 |
-   | `SM_PET_IDLE_EXIT` | `30` | 閒置幾分鐘自動關窗；`0`＝永不 |
+   | `SM_PET_PERSIST` | `0` | 預設閒置滿 `SM_PET_IDLE_EXIT` 分鐘自動「回家」（視窗消失、有事再自動回來）；`1`＝永遠待在桌面 |
+   | `SM_PET_IDLE_EXIT` | `5` | 閒置幾分鐘回家（關 daemon 釋放記憶體）；`0`＝永不 |
 
    立繪寵是**一隻常駐窗**（單例，每專案一隻），可拖曳移動、**雙擊關閉**。
    想先看效果不必開 hook：`py -3 "${CLAUDE_PLUGIN_ROOT}/scripts/live2d_pet.py" --demo`

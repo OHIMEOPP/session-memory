@@ -25,6 +25,22 @@ from pathlib import Path
 COLLECTION = "sessions"
 
 
+def _plugin_version():
+    """讀 .claude-plugin/plugin.json 的 version，給 Live2D 桌寵的單例 mutex 名用。
+    mutex 名含版本號 → 不同版本各自一把鎖，升級時新版桌寵不會被舊版殘留 daemon
+    佔住的鎖擋下（見 live2d_pet._single_instance_guard / session_pet._live2d_running）。
+    讀不到（獨立執行、非 plugin 佈局）時回 '0'，退化成舊行為（同版去重照常）。"""
+    try:
+        import json
+        f = Path(__file__).resolve().parent.parent / ".claude-plugin" / "plugin.json"
+        return (json.loads(f.read_text(encoding="utf-8")).get("version") or "0").strip()
+    except Exception:
+        return "0"
+
+
+PLUGIN_VERSION = _plugin_version()
+
+
 def _project_key():
     """當前專案根目錄：hook 走 CLAUDE_PROJECT_DIR，查詢走 cwd（Claude 在專案根跑 Bash）。"""
     base = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()

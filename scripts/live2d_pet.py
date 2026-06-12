@@ -34,10 +34,11 @@ import time
 from pathlib import Path
 
 try:
-    from session_mem_common import DB_DIR
+    from session_mem_common import DB_DIR, PLUGIN_VERSION
 except Exception:
     # 獨立執行（不在 plugin 環境）時退回當前目錄，仍可 --demo 看效果
     DB_DIR = Path(os.environ.get("LIFEWIKI_DB_ROOT", Path.home() / ".sm_live2d_demo"))
+    PLUGIN_VERSION = "0"
 
 PENDING_DIR = DB_DIR / ".pending"
 BUSY_MARKER = DB_DIR / ".busy"
@@ -71,7 +72,7 @@ def _single_instance_guard():
     if os.name == "nt":
         try:
             import ctypes
-            name = f"Global\\sm_live2d_pet_{slug}"
+            name = f"Global\\sm_live2d_pet_{slug}_{PLUGIN_VERSION}"
             h = ctypes.windll.kernel32.CreateMutexW(None, False, name)
             if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
                 return False

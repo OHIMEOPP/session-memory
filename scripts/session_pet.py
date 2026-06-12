@@ -42,7 +42,7 @@ import subprocess
 import sys
 import time
 
-from session_mem_common import DB_DIR        # 與 worker 同一專案艙（CLAUDE_PROJECT_DIR 由 worker 繼承）
+from session_mem_common import DB_DIR, PLUGIN_VERSION  # 與 worker 同一專案艙（CLAUDE_PROJECT_DIR 由 worker 繼承）
 
 PENDING_DIR = DB_DIR / ".pending"
 BUSY_MARKER = DB_DIR / ".busy"      # 綠色寵作業中訊號：UserPromptSubmit 建、Stop 刪
@@ -251,7 +251,7 @@ def _live2d_running():
         slug = DB_DIR.name or "default"
         SYNCHRONIZE = 0x00100000
         h = ctypes.windll.kernel32.OpenMutexW(
-            SYNCHRONIZE, False, f"Global\\sm_live2d_pet_{slug}")
+            SYNCHRONIZE, False, f"Global\\sm_live2d_pet_{slug}_{PLUGIN_VERSION}")
         if h:
             ctypes.windll.kernel32.CloseHandle(h)
             return True

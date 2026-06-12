@@ -174,7 +174,7 @@ def main(demo=False):
         drag["off"] = None
 
     def dbl(e):           # 雙擊關閉
-        win.close()
+        app.quit()        # 真結束 daemon 釋放 mutex；Qt.Tool 窗的 win.close() 只隱藏不退出（WA_QuitOnClose 被 Qt 設 False）
 
     overlay.mousePressEvent = press
     overlay.mouseMoveEvent = move
@@ -280,7 +280,7 @@ def main(demo=False):
             st["last_active"] = now
         elif IDLE_EXIT_MIN > 0 and not demo and not PERSIST:
             if now - st["last_active"] > IDLE_EXIT_MIN * 60:
-                win.close()
+                app.quit()    # 同 dbl：Qt.Tool 窗 win.close() 不會退出進程，得 app.quit() 才真回家
 
     timer = QTimer()
     timer.timeout.connect(tick)

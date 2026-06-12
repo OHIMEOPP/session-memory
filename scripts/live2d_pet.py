@@ -52,6 +52,7 @@ SCALE = os.environ.get("SM_PET_SCALE", "")            # 給了才覆蓋 frame �
 CAPTION = "0" if os.environ.get("SM_PET_CAPTION") == "0" else "1"
 IDLE_EXIT_MIN = float(os.environ.get("SM_PET_IDLE_EXIT", "5"))   # 閒置幾分鐘「回家」
 PERSIST = os.environ.get("SM_PET_PERSIST", "0") == "1"           # 1=永遠待著不回家
+MASK_ENABLED = os.environ.get("SM_PET_MASK", "1") != "0"         # 0=不做逐像素穿透（整窗可拖/可點）
 
 POLL_MS = 500          # 標記輪詢間隔
 DONE_HOLD_S = 2.2      # 「處理完成」停留秒數
@@ -109,6 +110,7 @@ def main(demo=False):
     _dbg("main start demo=%s pid=%s exe=%s" % (demo, os.getpid(), sys.executable))
     try:
         from PySide6.QtCore import Qt, QUrl, QTimer
+        from PySide6.QtGui import QRegion
         from PySide6.QtWidgets import QApplication, QMainWindow, QWidget
         from PySide6.QtWebEngineWidgets import QWebEngineView
         from PySide6.QtWebEngineCore import QWebEngineSettings
@@ -206,9 +208,9 @@ def main(demo=False):
     _dbg("view.load done")
 
     # ---- 視窗大小 / 定位（預設右下角；SM_PET_POS="x,y" 可指定，gallery 平鋪用）----
-    # half 取景立繪錨點貼頂、框到腰（visible bottom ≈ 266px）；窗高取 300 砍掉腰下整段透明死區
-    # （該區 WA_TranslucentBackground 視覺透明但仍攔截滑鼠 → 擋住後方視窗點擊）。
-    # scale 只依 W，故減 H 是純垂直裁切、不縮放/切立繪。左右 gutter 與真‧逐像素穿透屬後續 setMask 方案。
+    # half 取景立繪錨點貼頂、框到腰（visible bottom ≈ 266px）；窗高取 300 留小餘裕。
+    # 透明死區（腰下殘餘 + 左右 gutter）的滑鼠穿透由下方 update_mask 的逐像素 setMask 處理：
+    # WA_TranslucentBackground 只是視覺透明、仍攔截滑鼠，故額外用 mask 把窗的命中區裁成狗的實際輪廓。
     W, H = 300, 300
     win.resize(W, H)
     scr = app.primaryScreen().availableGeometry()
@@ -245,6 +247,46 @@ def main(demo=False):
     def set_state(st):
         view.page().runJavaScript(
             "window.setPetState && window.setPetState(%r)" % st)
+
+    # ---- 逐像素穿透遮罩 ----
+    # JS 端 __getPetMask 讀 canvas alpha，算出狗實際不透明區的 row spans（logical px 矩形，
+    # 含名牌/字幕 strip）。這裡組成 QRegion 後 win.setMask()，把窗的命中+繪製區裁成狗的輪廓，
+    # 讓腰下與左右 gutter 的透明死區真正可點穿後方視窗。讀不到（模型未載完/extract 失敗）就維持
+    # 現狀（不遮罩＝整窗可點，等同未加此功能的安全行為）。
+    mask_state = {"last": None}
+
+    def _apply_mask(js):
+        import json
+        try:
+            rects = json.loads(js) if js and js not in ("null", "undefined") else None
+        except Exception:
+            rects = None
+        if not rects:
+            return
+        key = repr(rects)
+        if key == mask_state["last"]:
+            return                      # 輪廓沒變 → 免重設省重繪
+        mask_state["last"] = key
+        reg = QRegion()
+        for r in rects:
+            try:
+                x, y, w, h = (int(v) for v in r)
+            except Exception:
+                continue
+            if w > 0 and h > 0:
+                reg = reg.united(QRegion(x, y, w, h))
+        if not reg.isEmpty():
+            win.setMask(reg)
+            _dbg("mask applied: %d rects bbox=%s" % (len(rects), reg.boundingRect().getRect()))
+
+    def update_mask():
+        view.page().runJavaScript(
+            "window.__getPetMask ? window.__getPetMask() : 'null'", _apply_mask)
+
+    mask_timer = QTimer()
+    if MASK_ENABLED:
+        mask_timer.timeout.connect(update_mask)
+        mask_timer.start(600)
 
     # ---- 狀態機 ----
     st = {"cur": None, "prev_busy": False, "done_until": 0.0, "last_active": time.time()}

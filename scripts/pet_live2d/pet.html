@@ -132,6 +132,9 @@ async function boot() {
     width: window.innerWidth, height: window.innerHeight,
     backgroundAlpha: 0, antialias: true,
     autoDensity: true, resolution: FIXED_RES,
+    // 保留 drawing buffer：否則 WebGL 畫完該幀就清掉、drawImage/readPixels 讀回全透明，
+    // 逐像素穿透遮罩（computeMask 讀 #stage alpha）會抓不到狗的輪廓。代價極小（小窗）。
+    preserveDrawingBuffer: true,
   });
 
   try {
@@ -187,6 +190,68 @@ window.setPetState = function (state) {
   try { if (exp) model.expression(exp); } catch (e) {}
   // 短暫狀態（等你回應 / 完成）觸發拍打動作增加生氣；待機/作業中靠自動 idle 動作
   try { if (m.motion === 'tap' && TAP_GROUP) model.motion(TAP_GROUP, undefined, 3 /*FORCE*/); } catch (e) {}
+};
+
+// ---- 逐像素輪廓遮罩：給 Python 端 setMask 用，讓窗的透明死區（腰下 + 左右 gutter）真正可點穿 ----
+// 讀 canvas 的 alpha，逐 row band 算狗實際不透明區的 [minX,maxX] 水平 span → 回傳 logical px 矩形清單。
+// 全透明的 row（腰下）整段不回 → 該區不納遮罩 → 可穿透；左右 gutter 依每列狗寬裁掉。
+// 名牌/字幕是獨立 DOM，落在輪廓外會被 setMask 一起裁掉 → 顯示時把那條 strip 併進遮罩保住可見。
+const MASK_ALPHA = 24;     // alpha 門檻（>= 此值視為不透明）
+const MASK_ROW = 8;        // 遮罩 row 高（logical px），越小越貼合、矩形數越多
+function computeMask() {
+  if (!app || !model || !ready) return null;
+  let data, pw, ph;
+  try {
+    // 直接從 #stage（WebGL canvas）drawImage 到一張 2D canvas 再 getImageData：
+    // drawImage 保留 top-left origin（無 Y 翻轉問題），且因 app 開了 preserveDrawingBuffer，
+    // 畫面內容讀得回來。比 extract.pixels()（bottom-up）/ extract.canvas()（對 Live2D 自訂
+    // shader 擷取為空）都可靠。
+    const sc = document.getElementById('stage');
+    pw = sc.width; ph = sc.height;            // WebGL backing 尺寸（device px）
+    const t = document.createElement('canvas'); t.width = pw; t.height = ph;
+    const tx = t.getContext('2d'); tx.drawImage(sc, 0, 0);
+    data = tx.getImageData(0, 0, pw, ph).data;  // RGBA，top-left origin
+  } catch (e) { return null; }
+  if (!data || !pw || !ph) return null;
+  // logical = window CSS px，正是 win.setMask() 的座標空間；scale 由 canvas 實際尺寸推導，
+  // 不依賴 renderer.resolution（實測它與 canvas backing 尺寸可能對不上 → 座標放大成 device px）。
+  const Wl = window.innerWidth, Hl = window.innerHeight;
+  const sx = pw / Wl, sy = ph / Hl;            // 每 logical px 對應幾個 canvas px
+  const bands = Math.ceil(Hl / MASK_ROW);
+  const minX = new Float64Array(bands).fill(Infinity);
+  const maxX = new Float64Array(bands).fill(-1);
+  const step = Math.max(1, Math.round(sy));    // 約每 logical px 取一列，省迴圈
+  for (let py = 0; py < ph; py += step) {
+    const band = Math.floor((py / sy) / MASK_ROW);
+    if (band < 0 || band >= bands) continue;
+    const baseRow = py * pw * 4;
+    let lo = minX[band], hi = maxX[band];
+    const stepx = Math.max(1, Math.round(sx));
+    for (let px2 = 0; px2 < pw; px2 += stepx) {
+      if (data[baseRow + px2 * 4 + 3] >= MASK_ALPHA) {
+        const lx = px2 / sx;
+        if (lx < lo) lo = lx;
+        if (lx > hi) hi = lx;
+      }
+    }
+    minX[band] = lo; maxX[band] = hi;
+  }
+  const PAD = 5;            // 水平外擴幾 px，避免邊緣抗鋸齒半透明被切出硬邊
+  const out = [];
+  for (let b = 0; b < bands; b++) {
+    if (maxX[b] >= 0) {
+      const x = Math.max(0, Math.floor(minX[b]) - PAD);
+      const x2 = Math.min(Wl, Math.ceil(maxX[b]) + PAD);
+      if (x2 > x) out.push([x, b * MASK_ROW, x2 - x, MASK_ROW]);
+    }
+  }
+  if (NAME) out.push([0, 0, Wl, 22]);                                   // 名牌 strip（頂）
+  if (captionEl.classList.contains('show'))                            // 字幕 strip（底）
+    out.push([0, Math.max(0, Hl - 22), Wl, 22]);
+  return out.length ? out : null;
+}
+window.__getPetMask = function () {
+  try { return JSON.stringify(computeMask()); } catch (e) { return 'null'; }
 };
 
 boot();

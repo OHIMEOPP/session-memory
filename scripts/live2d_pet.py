@@ -206,7 +206,10 @@ def main(demo=False):
     _dbg("view.load done")
 
     # ---- 視窗大小 / 定位（預設右下角；SM_PET_POS="x,y" 可指定，gallery 平鋪用）----
-    W, H = 300, 380
+    # half 取景立繪錨點貼頂、框到腰（visible bottom ≈ 266px）；窗高取 300 砍掉腰下整段透明死區
+    # （該區 WA_TranslucentBackground 視覺透明但仍攔截滑鼠 → 擋住後方視窗點擊）。
+    # scale 只依 W，故減 H 是純垂直裁切、不縮放/切立繪。左右 gutter 與真‧逐像素穿透屬後續 setMask 方案。
+    W, H = 300, 300
     win.resize(W, H)
     scr = app.primaryScreen().availableGeometry()
     pos = os.environ.get("SM_PET_POS", "")

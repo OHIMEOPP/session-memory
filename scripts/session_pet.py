@@ -42,7 +42,7 @@ import subprocess
 import sys
 import time
 
-from session_mem_common import DB_DIR, PLUGIN_VERSION  # 與 worker 同一專案艙（CLAUDE_PROJECT_DIR 由 worker 繼承）
+from session_mem_common import DB_DIR, PLUGIN_VERSION, PROJECT_NAME  # 與 worker 同一專案艙（CLAUDE_PROJECT_DIR 由 worker 繼承）
 
 PENDING_DIR = DB_DIR / ".pending"
 BUSY_MARKER = DB_DIR / ".busy"      # 綠色寵作業中訊號：UserPromptSubmit 建、Stop 刪
@@ -111,9 +111,19 @@ def main(mode="watch"):
     else:
         first_face, first_msg, first_bar = FACES[0], "session 萃取中…", BARS[0]
 
+    # 頂端名牌：預設專案名（辨識多 session 用），SM_PET_NAME 顯式設可覆蓋 / ""=關閉
+    pet_name = os.environ.get("SM_PET_NAME")
+    if pet_name is None:
+        pet_name = PROJECT_NAME
+    name_lbl = None
+    if pet_name:
+        name_lbl = tk.Label(root, text=pet_name, font=("Microsoft JhengHei UI", 8, "bold"),
+                            bg=BG, fg=AC)
+        name_lbl.pack(padx=16, pady=(7, 0))
+
     face = tk.Label(root, text=first_face, font=("Segoe UI", 20, "bold"),
                     bg=BG, fg=AC if is_done else FG)
-    face.pack(padx=16, pady=(10, 2))
+    face.pack(padx=16, pady=(6, 2))
     msg = tk.Label(root, text=first_msg, font=("Microsoft JhengHei UI", 10), bg=BG, fg=FG)
     msg.pack(padx=16)
     bar = tk.Label(root, text=first_bar, font=("Segoe UI", 13), bg=BG, fg=AC)
@@ -130,7 +140,7 @@ def main(mode="watch"):
     def on_drag(e):
         root.geometry(f"+{e.x_root - root._dx}+{e.y_root - root._dy}")
 
-    for wdg in (root, face, msg, bar):
+    for wdg in (root, face, msg, bar) + ((name_lbl,) if name_lbl else ()):
         wdg.bind("<Button-1>", start_drag)
         wdg.bind("<B1-Motion>", on_drag)
 
@@ -141,11 +151,13 @@ def main(mode="watch"):
 
     def paint(bg, fg, ac):
         root.configure(bg=bg)
-        for wdg in (face, msg, bar):
+        for wdg in (face, msg, bar) + ((name_lbl,) if name_lbl else ()):
             wdg.configure(bg=bg)
         face.configure(fg=fg)
         msg.configure(fg=fg)
         bar.configure(fg=ac)
+        if name_lbl:
+            name_lbl.configure(fg=ac)
 
     # 結束條件：busy 盯 .busy；wait 盯 .waiting；watch 盯 pending 清空
     if is_busy:

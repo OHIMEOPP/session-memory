@@ -25,6 +25,7 @@ session_pet.py 退回顏文字寵。**純 cosmetic，掛了不影響任何記憶
   SM_PET_FRAME    取景 half|full|head（預設 half）
   SM_PET_SCALE    固定縮放（給了才覆蓋 frame 自動取景）
   SM_PET_CAPTION  0 關閉字幕（預設開）
+  SM_PET_NAME     頂端名牌文字（預設＝專案資料夾名，辨識多 session 用；""=關閉名牌）
   SM_PET_PERSIST  1=永遠待著不回家（預設 0：閒置滿 IDLE_EXIT 分鐘自動回家）
   SM_PET_IDLE_EXIT  閒置幾分鐘「回家」關 daemon（預設 5；0=永不）
 """
@@ -34,11 +35,12 @@ import time
 from pathlib import Path
 
 try:
-    from session_mem_common import DB_DIR, PLUGIN_VERSION
+    from session_mem_common import DB_DIR, PLUGIN_VERSION, PROJECT_NAME
 except Exception:
     # 獨立執行（不在 plugin 環境）時退回當前目錄，仍可 --demo 看效果
     DB_DIR = Path(os.environ.get("LIFEWIKI_DB_ROOT", Path.home() / ".sm_live2d_demo"))
     PLUGIN_VERSION = "0"
+    PROJECT_NAME = DB_DIR.name or "default"
 
 PENDING_DIR = DB_DIR / ".pending"
 BUSY_MARKER = DB_DIR / ".busy"
@@ -199,7 +201,12 @@ def main(demo=False):
     q = f"model={MODEL_URL}&caption={CAPTION}&frame={FRAME}&state={init_state}"
     if SCALE:
         q += f"&scale={SCALE}"
-    name = os.environ.get("SM_PET_NAME", "")        # 預覽名牌（常駐顯示在頂端）
+    # 名牌（常駐顯示在頂端）：預設用專案名稱，方便多 session 同時開時辨識哪隻寵對應
+    # 哪個專案；SM_PET_NAME 顯式設了才覆蓋（gallery 平鋪預覽用）。設成空字串
+    # SM_PET_NAME="" 仍可關掉名牌（os.environ.get 回 "" 而非 None）。
+    name = os.environ.get("SM_PET_NAME")
+    if name is None:
+        name = PROJECT_NAME
     if name:
         from urllib.parse import quote
         q += f"&name={quote(name)}"

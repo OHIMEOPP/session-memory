@@ -59,6 +59,11 @@ _DB_ROOT = Path(os.environ.get("LIFEWIKI_DB_ROOT")
                 or (Path.home() / ".claude" / "session-memory"))
 DB_DIR = _DB_ROOT / _slug(_project_key())        # 本專案專屬向量庫
 
+# 友善專案名（桌寵名牌用）：取專案根目錄 basename，比 slug 好讀
+# （life_wiki / KOATAG / claude-mailbox 而非 C--Users-User-Desktop-...）。
+# 多 session 同時開時，靠這個一眼辨識哪隻桌寵對應哪個專案。
+PROJECT_NAME = _project_key().name or "default"
+
 EMBED_BACKEND = os.environ.get("LIFEWIKI_EMBED_BACKEND", "chroma").lower()
 OLLAMA_EMBED_MODEL = os.environ.get("LIFEWIKI_EMBED_MODEL", "bge-m3")
 OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")

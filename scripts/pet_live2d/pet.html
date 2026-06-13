@@ -20,7 +20,7 @@
   }
   #stage { display: block; width: 100%; height: 100%; background: transparent; }
   #caption {
-    position: fixed; left: 0; right: 0; bottom: 6px;
+    position: fixed; left: 0; right: 0; top: 100px;
     text-align: center;
     font-family: "Microsoft JhengHei UI", "Segoe UI", sans-serif;
     font-size: 12px; font-weight: 600;
@@ -31,7 +31,7 @@
   }
   #caption.show { opacity: 1; }
   #nametag {
-    position: fixed; left: 0; right: 0; top: 4px; text-align: center;
+    position: fixed; left: 0; right: 0; top: 80px; text-align: center;
     font-family: "Microsoft JhengHei UI", "Segoe UI", sans-serif;
     font-size: 12px; font-weight: 700; color: #ffe9a6;
     text-shadow: 0 1px 3px rgba(0,0,0,.9), 0 0 6px rgba(0,0,0,.7);
@@ -245,9 +245,9 @@ function computeMask() {
       if (x2 > x) out.push([x, b * MASK_ROW, x2 - x, MASK_ROW]);
     }
   }
-  if (NAME) out.push([0, 0, Wl, 22]);                                   // 名牌 strip（頂）
-  if (captionEl.classList.contains('show'))                            // 字幕 strip（底）
-    out.push([0, Math.max(0, Hl - 22), Wl, 22]);
+  if (NAME) out.push([0, 74, Wl, 28]);                                  // 名牌 strip（配合 top:80px 下移）
+  if (captionEl.classList.contains('show'))                            // 字幕 strip（名牌正下方）
+    out.push([0, 96, Wl, 24]);
   return out.length ? out : null;
 }
 window.__getPetMask = function () {

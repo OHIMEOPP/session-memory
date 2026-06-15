@@ -162,10 +162,20 @@ function ClaudeQuip() {
     return $quips[$idx]
 }
 
-# 第 1 行＝身份/環境（model + git 分支 + ctx）；第 2 行＝用量/花費
+# 第 1 行＝身份/環境（專案 + model + git 分支 + ctx）；第 2 行＝用量/花費
 $line1 = @()
 $line2 = @()
 $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+
+# 專案名稱：多 session/多專案並跑時，一眼分辨這條狀態列屬於哪個專案（取專案根目錄的 leaf）。
+# 來源優先序：workspace.project_dir（原始專案根，worktree 時仍指回主專案）→ cwd → current_dir。
+$projDir = $d.workspace.project_dir
+if (-not $projDir) { $projDir = $d.cwd }
+if (-not $projDir) { $projDir = $d.workspace.current_dir }
+if ($projDir) {
+    $projName = Split-Path -Leaf "$projDir"
+    if ($projName) { $line1 += "${PALE}📁${MAIN} $projName" }
+}
 
 $model = $d.model.display_name
 if ($model) { $line1 += $model }

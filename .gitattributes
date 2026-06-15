@@ -1,0 +1,2 @@
+# Shell 腳本一律 LF：CRLF 的 \r 會破壞 shebang 與變數，且部署目標是 git-bash
+*.sh text eol=lf

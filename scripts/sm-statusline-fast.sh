@@ -32,7 +32,10 @@ cache="$base/sm_statusline_cache_${sid}.txt"
 injson="$base/sm_statusline_last_${sid}.json"
 lock="$base/sm_statusline_refresh_${sid}.lock"
 
-printf '%s' "$stdin" > "$injson" 2>/dev/null
+# 原子寫入：先寫 .tmp 再 mv（rename 在同分割區是原子的）。背景 refresher 以 `< injson` 讀檔，
+# 若這裡用 `> injson` 直寫會先 truncate 再填，剛好撞上背景 powershell 讀檔時就讀到半截/空 JSON
+# → ConvertFrom-Json 失敗 → 該次刷新回空 → 快取不更新（顯示閃一拍舊值）。mv 讓讀端永遠看到完整檔。
+printf '%s' "$stdin" > "$injson.tmp" 2>/dev/null && mv -f "$injson.tmp" "$injson" 2>/dev/null
 
 # 3) 立刻吐出本 session 自己的快取 —— 這就是 render 路徑，純 cat、零 PowerShell
 [ -f "$cache" ] && cat "$cache"
@@ -43,8 +46,17 @@ lockts=$(stat -c %Y "$lock" 2>/dev/null || echo 0)
 if [ ! -e "$lock" ] || [ $((now - lockts)) -ge 8 ]; then
   : > "$lock"
   nohup bash -c '
+    t0=$(date +%s%N 2>/dev/null || echo 0)
     out=$(powershell -NoProfile -ExecutionPolicy Bypass -File "'"$wrapper"'" < "'"$injson"'" 2>/dev/null)
+    t1=$(date +%s%N 2>/dev/null || echo 0)
     if [ -n "$out" ]; then printf "%s" "$out" > "'"$cache"'.tmp" && mv -f "'"$cache"'.tmp" "'"$cache"'"; fi
+    # 偵測（預設關）：touch "'"$base"'/sm_statusline_debug" 即開，記錄每次刷新耗時/空非空，
+    # 用來抓間歇卡住到底是 OK 還是連續 EMPTY（卡住＝快取不更新＝這裡連續吐 EMPTY/超時）。
+    if [ -f "'"$base"'/sm_statusline_debug" ]; then
+      ms=$(( (t1 - t0) / 1000000 ))
+      printf "%s sid=%s ms=%s bytes=%s %s\n" "$(date "+%F %T")" "'"$sid"'" "$ms" "${#out}" \
+        "$([ -n "$out" ] && echo OK || echo EMPTY)" >> "'"$base"'/sm_statusline_debug.log" 2>/dev/null
+    fi
     rm -f "'"$lock"'"
     # 順手清掉 1 天前的分艙殘檔（session 結束後不會再被讀，避免無限累積）
     find "'"$base"'" -maxdepth 1 -name "sm_statusline_*_*" -type f -mtime +1 -delete 2>/dev/null

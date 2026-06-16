@@ -67,19 +67,45 @@ function ToK([double]$n) {
     return "$([int][math]::Round($n))"
 }
 
-# 取當前 git 分支（fail-safe：非 repo / 無 git → 回 $null 不顯示）。detached HEAD 回 short sha。
+# 跑一次 git 並加 timeout（預設 3s），逾時就 kill、回 $null。
+# 為什麼要 timeout：本函式雖在背景 refresher 跑（不在 render 路徑），但 git.exe 在 Windows
+# 偶發會卡住（防毒冷啟掃描、fsmonitor、慢碟、stale index.lock…），`& git` 同步呼叫沒有
+# 上限就會把整隻 refresher 卡死 → 背景 powershell 不返回 → fast.sh 的 lock 不被清 → 下次
+# render 又 spawn 一隻照卡，快取整段不更新 → 狀態列凍結數十分鐘（直到 git 狀況自己解除）。
+# 用 Start-Process + WaitForExit(ms) 設硬上限，stdout/stderr 各導到 temp 檔避免污染擷取。
+function GitRun([string]$dir, [string[]]$gitArgs, [int]$timeoutMs = 3000) {
+    $outFile = [System.IO.Path]::GetTempFileName()
+    $errFile = [System.IO.Path]::GetTempFileName()
+    try {
+        $p = Start-Process -FilePath 'git' -ArgumentList (@('-C', $dir) + $gitArgs) `
+            -NoNewWindow -PassThru `
+            -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+        if (-not $p.WaitForExit($timeoutMs)) {
+            try { $p.Kill() } catch { }
+            return $null
+        }
+        # 不靠 $p.ExitCode 判斷：Start-Process -PassThru 配 -RedirectStandardOutput 時，
+        # 返回的 Process 物件 ExitCode 常為空（已知坑），用它判斷會誤殺。改看 stdout：
+        # git 成功才把結果印到 stdout，失敗（非 repo / 逾時）stdout 為空 → 自然回 $null。
+        $o = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
+        if ($o) { return "$o".Trim() }
+        return $null
+    } catch { return $null }
+    finally {
+        Remove-Item $outFile -ErrorAction SilentlyContinue
+        Remove-Item $errFile -ErrorAction SilentlyContinue
+    }
+}
+
+# 取當前 git 分支（fail-safe：非 repo / 無 git / git 卡住逾時 → 回 $null 不顯示）。detached HEAD 回 short sha。
 function GitBranch([string]$dir) {
     if (-not $dir) { return $null }
-    try {
-        $b = (& git -C $dir rev-parse --abbrev-ref HEAD 2>$null)
-        if ($LASTEXITCODE -ne 0 -or -not $b) { return $null }
-        $b = "$b".Trim()
-        if ($b -eq 'HEAD') {
-            $b = (& git -C $dir rev-parse --short HEAD 2>$null)
-            $b = if ($b) { "$b".Trim() } else { $null }
-        }
-        return $b
-    } catch { return $null }
+    $b = GitRun $dir @('rev-parse', '--abbrev-ref', 'HEAD')
+    if (-not $b) { return $null }
+    if ($b -eq 'HEAD') {
+        $b = GitRun $dir @('rev-parse', '--short', 'HEAD')
+    }
+    return $b
 }
 
 # 日圓→台幣匯率（100¥=NT$X.X）。非阻塞：render 只讀快取檔，過期就背景丟一隻 powershell

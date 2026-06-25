@@ -20,6 +20,16 @@ if (-not $Raw) { $Raw = [Console]::In.ReadToEnd() }
 
 $d = $null
 try { $d = $Raw | ConvertFrom-Json } catch { }
+if ($null -eq $d) {
+    # Claude Code 2.1.191+ 新增的 session_name 欄含中文時，Windows ANSI(CP950) 有損編碼會把
+    # 字串值的收尾引號一起吃掉 → 整包 JSON ConvertFrom-Json 失敗 → renderer 吐空 → 快取永不
+    # 被覆寫 → 狀態列凍結數十分鐘。renderer 不用 session_name（專案名取自 workspace.project_dir），
+    # 故 parse 失敗時把整個 session_name 欄剝掉（容忍壞掉的收尾引號：吃到下一個已知頂層 key 前）再試。
+    try {
+        $k = 'model|workspace|cwd|version|output_style|cost|context_window|transcript_path|rate_limits|exceeds_200k_tokens|fast_mode|thinking|effort'
+        $d = ($Raw -replace (',?\s*"session_name"\s*:\s*"[\s\S]*?(?=,\s*"(?:' + $k + ')"\s*:)'), '') | ConvertFrom-Json
+    } catch { }
+}
 if ($null -eq $d) { return }
 
 # --- 櫻花粉配色（ANSI truecolor）---

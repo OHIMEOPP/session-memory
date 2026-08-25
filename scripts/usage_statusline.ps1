@@ -108,13 +108,37 @@ function GitRun([string]$dir, [string[]]$gitArgs, [int]$timeoutMs = 3000) {
 }
 
 # 取當前 git 分支（fail-safe：非 repo / 無 git / git 卡住逾時 → 回 $null 不顯示）。detached HEAD 回 short sha。
+#
+# 檔案快取 TTL 15s：分支極少變動，但 statusLine 每隔幾秒就重算一輪，每輪都 spawn 一隻 git.exe。
+# 在 Windows 上，從沒有 console 的背景 refresher 啟動主控台程式會**配一個新 console**
+# → 使用者看到終端視窗不斷閃現（0.8.5 排查終端瘋狂開視窗時抓到的第二個來源，第一個是
+# per-refresh spawn 的 powershell，已由 sm-statusline-daemon.ps1 解掉）。
+# 負面結果（非 repo）也一併快取，避免對非 repo 目錄每輪都白問一次。
 function GitBranch([string]$dir) {
     if (-not $dir) { return $null }
+
+    $key = [BitConverter]::ToString(
+        [Security.Cryptography.MD5]::Create().ComputeHash(
+            [Text.Encoding]::UTF8.GetBytes($dir.ToLower()))).Replace('-', '')
+    $cache = Join-Path $env:TEMP "sm_git_branch_$key.txt"
+
+    if (Test-Path $cache) {
+        try {
+            if (((Get-Date) - (Get-Item $cache).LastWriteTime).TotalSeconds -lt 15) {
+                $v = (Get-Content $cache -Raw -ErrorAction SilentlyContinue)
+                if ($v -and $v.Trim()) { return $v.Trim() }
+                return $null        # 空內容＝上次已確認非 repo，直接沿用結論
+            }
+        } catch { }
+    }
+
     $b = GitRun $dir @('rev-parse', '--abbrev-ref', 'HEAD')
-    if (-not $b) { return $null }
     if ($b -eq 'HEAD') {
         $b = GitRun $dir @('rev-parse', '--short', 'HEAD')
     }
+    try { Set-Content -Path $cache -Value ([string]$b) -Encoding ascii -ErrorAction SilentlyContinue } catch { }
+
+    if (-not $b) { return $null }
     return $b
 }
 

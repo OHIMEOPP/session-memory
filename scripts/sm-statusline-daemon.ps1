@@ -18,7 +18,10 @@
 param(
     [Parameter(Mandatory = $true)][string]$Base,   # ~/.claude/scripts 絕對路徑
     [Parameter(Mandatory = $true)][string]$Sid,    # session_id（已由呼叫端清成檔名安全字元）
-    [int]$IntervalSec = 2,                          # 每輪間隔
+    # 每輪間隔。設 1 是為了讓 reset 倒數（顯示到秒）真的每秒跳——舊的 per-refresh spawn 架構
+    # 每輪成本 300ms 起跳（powershell 冷啟 + git），跑不動每秒；改 daemon + git 分支快取後
+    # 每輪只剩 6-21ms（同行程內函式呼叫、零子行程），1s 綽綽有餘。
+    [int]$IntervalSec = 1,
     [int]$IdleExitSec = 120,                        # injson 多久沒更新就判定 session 已死
     [int]$MaxHours    = 12                          # 硬性壽命上限
 )

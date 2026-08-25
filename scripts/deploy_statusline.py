@@ -4,9 +4,10 @@
 為什麼要這支：statusLine 無法由 plugin manifest 註冊（Claude Code 只允許 plugin 提供
 agent / subagentStatusLine），且 user settings 的 statusLine 指令不展開
 ${CLAUDE_PLUGIN_ROOT}、plugin cache 路徑又含版本號。故：
-  1. 冪等部署兩支腳本到 ~/.claude/scripts/（隨 /plugin update 更新）：
+  1. 冪等部署三支腳本到 ~/.claude/scripts/（隨 /plugin update 更新）：
        - sm-statusline-fast.sh：render 路徑（純 cat 快取，零 PowerShell）
-       - sm-statusline-wrapper.ps1：背景 refresh 用的真渲染（含 PowerShell）
+       - sm-statusline-daemon.ps1：背景長駐 refresher（每 session 一個，0.8.5 起）
+       - sm-statusline-wrapper.ps1：被當子行程呼叫時的渲染入口（回溯相容）
   2. settings.json 沒 statusLine → 補一行指向 fast.sh（含 refreshInterval）；
      舊版直接呼叫 wrapper.ps1 的 command → 自動遷移成 fast.sh（修狀態列逾時空白 bug）；
      使用者自訂的別的 statusLine → 完全不動。
@@ -22,19 +23,20 @@ import os
 import shutil
 from pathlib import Path
 
-WRAPPER_NAME = "sm-statusline-wrapper.ps1"   # 背景 refresh 用（含 PowerShell 渲染）
+WRAPPER_NAME = "sm-statusline-wrapper.ps1"   # 被當子行程呼叫時的真渲染入口（保留給外部/回溯相容）
+DAEMON_NAME = "sm-statusline-daemon.ps1"     # 背景長駐 refresher（0.8.5 起取代 per-refresh spawn）
 FAST_NAME = "sm-statusline-fast.sh"          # render 路徑用（純 cat 快取，零 PowerShell）
 SCRIPTS_PLACEHOLDER = "__SCRIPTS_DIR__"
 
 SCRIPTS_DIR = Path.home() / ".claude" / "scripts"
 
 
-def deploy_wrapper(root: Path):
-    """把 plugin 內 wrapper 冪等複製到 ~/.claude/scripts/，回傳目標路徑（失敗回 None）。"""
-    src = root / "scripts" / WRAPPER_NAME
+def deploy_verbatim(root: Path, name: str):
+    """把 plugin 內某支腳本原封不動冪等複製到 ~/.claude/scripts/，回傳目標路徑（失敗回 None）。"""
+    src = root / "scripts" / name
     if not src.exists():
         return None
-    dst = SCRIPTS_DIR / WRAPPER_NAME
+    dst = SCRIPTS_DIR / name
     try:
         SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
         if not dst.exists() or dst.read_bytes() != src.read_bytes():
@@ -124,8 +126,9 @@ def main():
     if not root:
         return
     root = Path(root)
-    deploy_wrapper(root)        # 背景 refresh 仍呼叫 wrapper.ps1（含 PowerShell 渲染）
-    fast = deploy_fast(root)    # render 路徑：純 cat 快取，零 PowerShell
+    deploy_verbatim(root, WRAPPER_NAME)   # 子行程呼叫用的渲染入口（回溯相容）
+    deploy_verbatim(root, DAEMON_NAME)    # 背景長駐 refresher，由 fast.sh 在心跳過期時補起
+    fast = deploy_fast(root)              # render 路徑：純 cat 快取，零 PowerShell
     if fast:
         ensure_statusline(fast)
 

@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 """
-查詢 session 記憶向量庫（由 extract_session.py 累積，按專案分艙）。
+查詢 session 記憶（由 extract_session.py 累積，按專案分艙）。
 
-  py query_sessions.py "你的問題"                  # 語意檢索最相關的過去 session 摘要
+  py query_sessions.py "你的問題"                  # BM25 關鍵字檢索最相關的過去 session 摘要
   py query_sessions.py --list                      # 列出庫裡所有 session（peek）
   py query_sessions.py "問題" -k 5                  # 指定回幾筆
-  py query_sessions.py "問題" --min-score 0.5      # 只回相似度 ≥ 0.5 的，避免撈到不相關舊紀錄
+  py query_sessions.py "問題" --rel 0.3            # 相對門檻：低於第 1 名分數幾成的不顯示（預設 0.5）
   py query_sessions.py --status                    # 看有沒有 session 還在背景萃取中（沒萃完前查不到）
 
 只查「當前專案」的艙（取自 CLAUDE_PROJECT_DIR，fallback cwd）。
 
-門檻 (--min-score) 是 query/模型相依的，沒有萬用魔數：建議從 0.45~0.55 起，
-看輸出的相似度分數自己校。預設 0.0 = 不過濾。
+檢索走 BM25：直接讀 summaries/*.md，jieba 斷詞後用 rank_bm25 打分。
+BM25 分數沒有上限、不同查詢不能比，所以用「跟第 1 名比」的相對門檻。
+繁體詞典 dict.txt.big 與自訂詞 userdict.txt 放在庫根目錄（~/.claude/session-memory/），有就載入。
 
-依賴：pip install chromadb（embedding 後端見 session_mem_common.py；
-chroma 模式零 ollama，ollama/openai 模式才需各自依賴）。
+依賴：pip install chromadb jieba rank_bm25（chromadb 給寫入端與 --list 用）。
 """
+import logging
+import re
 import sys
 
 try:
@@ -23,9 +25,18 @@ try:
 except Exception:
     pass
 
-from session_mem_common import DB_DIR, get_collection
+from session_mem_common import DB_DIR, DB_ROOT, get_collection
 
 PENDING_DIR = DB_DIR / ".pending"
+SUMMARY_DIR = DB_DIR / "summaries"
+BIG_DICT = DB_ROOT / "dict.txt.big"
+USER_DICT = DB_ROOT / "userdict.txt"
+
+STOPWORDS = set("的 了 是 在 和 與 也 就 都 而 及 或 有 被 把 這 那 個 一 不 要 會 到 跟 給 讓 用 對 為 從 上 下 中 等 嗎 呢 吧 啊".split())
+TOKEN_OK = re.compile(r"[\w一-鿿]")
+CJK_ONE = re.compile(r"^[一-鿿]$")
+# 只有 /clear、/exit 的空 session，主題會寫成這類句子
+EMPTY_TOPIC = re.compile(r"無實質|僅含|僅包含|僅有|只執行|只有執行|^無（|^無$")
 
 
 def pending():
@@ -63,27 +74,87 @@ def cmd_list():
               f"| reason={m.get('reason','')} | {m.get('summary_file','')}")
 
 
-def cmd_query(q, k=3, min_score=0.0):
-    warn_pending()
-    res = get_collection().query(query_texts=[q], n_results=k,    # EF 自動 embed 問題
-                                 include=["documents", "metadatas", "distances"])
-    docs = res["documents"][0] if res["documents"] else []
-    if not docs:
-        print("(向量庫是空的，還沒有 session 被萃取)")
-        return
-    metas, dists = res["metadatas"][0], res["distances"][0]
-    shown = 0
-    for i, (d, m, dist) in enumerate(zip(docs, metas, dists), 1):
-        sim = 1 - dist
-        if sim < min_score:                          # 低於門檻直接丟（避免撈到不相關舊紀錄）
+def topic_of(text):
+    m = re.search(r"## 主題\s*\n+(.+)", text)
+    if m:
+        return m.group(1).strip()
+    lines = text.splitlines()
+    return lines[0].strip() if lines else ""
+
+
+def load_summaries():
+    """讀本專案所有摘要；跳過空 session，同一 session 多份摘要只留最新那份。"""
+    docs = {}
+    latest = {}
+    if not SUMMARY_DIR.exists():
+        return docs
+    for f in sorted(SUMMARY_DIR.glob("*.md")):
+        text = f.read_text(encoding="utf-8", errors="replace")
+        if EMPTY_TOPIC.search(topic_of(text)):
             continue
+        sid = f.stem.split("_")[-1]
+        if sid in latest:
+            del docs[latest[sid]]
+        latest[sid] = f
+        docs[f] = text
+    return docs
+
+
+def get_jieba():
+    try:
+        import jieba
+    except ImportError as e:
+        raise RuntimeError("jieba 未安裝 — 跑 /session-memory-setup 或 `pip install jieba rank_bm25`") from e
+    jieba.setLogLevel(logging.ERROR)
+    if BIG_DICT.exists():
+        jieba.set_dictionary(str(BIG_DICT))
+    if USER_DICT.exists():
+        jieba.load_userdict(str(USER_DICT))
+    return jieba
+
+
+def tokenize(jieba, text):
+    tokens = []
+    for t in jieba.cut_for_search(text.lower()):
+        t = t.strip()
+        if not t or t in STOPWORDS or not TOKEN_OK.search(t):
+            continue
+        # 單一中文字太常見，不計分
+        if CJK_ONE.match(t):
+            continue
+        tokens.append(t)
+    return tokens
+
+
+def cmd_query(q, k=3, rel=0.5):
+    warn_pending()
+    try:
+        from rank_bm25 import BM25Okapi
+    except ImportError as e:
+        raise RuntimeError("rank_bm25 未安裝 — 跑 /session-memory-setup 或 `pip install jieba rank_bm25`") from e
+    docs = load_summaries()
+    if not docs:
+        print("(還沒有 session 被萃取)")
+        return
+    jieba = get_jieba()
+    files = list(docs)
+    bm25 = BM25Okapi([tokenize(jieba, docs[f]) for f in files], k1=1.5, b=0.75)
+    q_tokens = tokenize(jieba, q)
+    scores = bm25.get_scores(q_tokens)
+    ranked = sorted(zip(files, scores), key=lambda x: x[1], reverse=True)
+    ranked = [(f, s) for f, s in ranked if s > 0]
+    print(f"斷詞：{' / '.join(q_tokens)}")
+    if not ranked:
+        print("(沒有任何摘要含這些關鍵字 → 換個說法或加中英文同義詞再查)")
+        return
+    top = ranked[0][1]
+    shown = 0
+    for f, s in ranked[:k]:
+        if s < top * rel:                            # 跟第 1 名差太多就不顯示
+            break
         shown += 1
-        print(f"\n{'='*64}\n[{shown}] {m.get('ended_at','?')}  相似度≈{sim:.3f}"
-              f"  ({m.get('summary_file','')})\n{'='*64}")
-        print(d[:1500])
-    if shown == 0:
-        top = 1 - dists[0]
-        print(f"(沒有相似度 ≥ {min_score} 的過去 session；最高僅 {top:.3f} → 視為不相關，不顯示)")
+        print(f"\n{'='*64}\n[{shown}] BM25={s:.2f}  ({f})\n{'='*64}")
+        print(docs[f][:1500])
 
 
 def main():
@@ -96,21 +167,21 @@ def main():
     elif args[0] == "--list":
         cmd_list()
     else:
-        k, min_score = 3, 0.0
+        k, rel = 3, 0.5
         if "-k" in args:
             i = args.index("-k")
             k = int(args[i + 1])
             args = args[:i] + args[i + 2:]
-        if "--min-score" in args:
-            i = args.index("--min-score")
-            min_score = float(args[i + 1])
+        if "--rel" in args:
+            i = args.index("--rel")
+            rel = float(args[i + 1])
             args = args[:i] + args[i + 2:]
-        cmd_query(" ".join(args), k, min_score)
+        cmd_query(" ".join(args), k, rel)
 
 
 if __name__ == "__main__":
     try:
         main()
-    except RuntimeError as e:                 # 例如 chromadb 未安裝（見 session_mem_common._require_chromadb）
+    except RuntimeError as e:                 # 例如 chromadb / jieba / rank_bm25 未安裝
         print(f"⚠ {e}")
         sys.exit(0)

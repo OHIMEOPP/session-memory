@@ -29,7 +29,18 @@ description: 安裝 / 檢查 session 記憶系統的依賴與後端
    首次查詢會下載一個小的 MiniLM onnx embedding 模型（需一次性網路）；
    若報 onnxruntime 缺失，補 `py -3 -m pip install onnxruntime`。
 
-3. **回報後端選項**給使用者（預設 `chroma` 即可開箱用）：
+2.5 **裝檢索依賴**（`/session-recall` 走 BM25，需要 jieba 斷詞 + rank_bm25 打分）：
+   ```
+   py -3 -m pip install jieba rank_bm25
+   ```
+   再把 jieba 的**繁體詞典**放到庫根目錄（預設簡體詞典會把「書籤」「獎金」切成單字）：
+   ```
+   py -3 -c "import urllib.request, pathlib; p = pathlib.Path.home() / '.claude' / 'session-memory' / 'dict.txt.big'; p.parent.mkdir(parents=True, exist_ok=True); urllib.request.urlretrieve('https://raw.githubusercontent.com/fxsjy/jieba/master/extra_dict/dict.txt.big', p); print(p, p.stat().st_size)"
+   ```
+   （約 8.5 MB；沒放也能跑，只是退回簡體詞典。）
+   選填：同目錄放 `userdict.txt` 加自己的專有名詞，一行「詞 頻率 詞性」，例如 `投審表 1000 n`。
+
+3. **回報後端選項**給使用者（預設 `chroma` 即可開箱用；這是寫入端的 embedding，檢索已改走 BM25）：
    - `chroma`（預設）— 內建 MiniLM，中文較弱但堪用，零外部依賴。
    - `ollama` — 中文最強（bge-m3）。需裝 [Ollama](https://ollama.com) + `ollama pull bge-m3`，
      並設環境變數 `LIFEWIKI_EMBED_BACKEND=ollama`（寫入端與查詢端都要看得到）。

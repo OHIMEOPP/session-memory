@@ -19,7 +19,7 @@
 | `hooks/hooks.json` | `SessionStart` → 跑 `deploy_statusline.py`（自動部署 usage statusLine）；`SessionEnd` → 跑 `extract_session.py`（detached 背景，不卡退出）；`UserPromptSubmit` → 起綠色「作業中」桌寵；`Stop` → 同一隻翻成「處理完成」並關 |
 | `scripts/session_mem_common.py` | 分艙 DB 路徑 + embedding 後端（store/query 共用）|
 | `scripts/extract_session.py` | 萃取 worker：讀 transcript → `claude -p` 摘要 → embed 入庫 |
-| `scripts/query_sessions.py` | 查詢：`"問題"` / `--list` / `--status` / `--min-score` / `-k`|
+| `scripts/query_sessions.py` | 查詢：`"問題"`（BM25 關鍵字檢索摘要）/ `--list` / `--status` / `--rel` / `-k`|
 | `scripts/session_pet.py` | 右下角顏文字桌寵（cosmetic）。綠色寵=對話一回合「作業中→處理完成」（`UserPromptSubmit` 建 `.busy` + 起視窗，`Stop` 刪 `.busy` 令其翻完成；同一隻）；藍色寵=session 萃取中→完成（`LIFEWIKI_PET=0` 關）|
 | `scripts/usage_statusline.ps1` | usage 狀態列**顯示邏輯**：常駐顯示 `/usage` 的 session(5h 滾動窗)+week(7d) 用量%（+ context 保底）。改樣式只改這支，`/plugin update` 即散布——見「usage statusLine」章節 |
 | `scripts/sm-statusline-wrapper.ps1` | statusLine **橋接 wrapper 模板**：由 `deploy_statusline.py` 自動複製到 `~/.claude/scripts/`。動態定位 plugin cache 最高版、轉交 stdin（因 statusLine 不展開 `${CLAUDE_PLUGIN_ROOT}`、cache 路徑含版本號）|

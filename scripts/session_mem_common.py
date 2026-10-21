@@ -57,6 +57,7 @@ def _slug(p):
 
 _DB_ROOT = Path(os.environ.get("LIFEWIKI_DB_ROOT")
                 or (Path.home() / ".claude" / "session-memory"))
+DB_ROOT = _DB_ROOT                               # 各專案共用的根目錄（詞典放這）
 DB_DIR = _DB_ROOT / _slug(_project_key())        # 本專案專屬向量庫
 
 # 友善專案名（桌寵名牌用）：取專案根目錄 basename，比 slug 好讀
